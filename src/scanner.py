@@ -26,59 +26,47 @@ from edge_calculator import find_edges, TradeSignal
 from position_manager import open_position, check_exits, display_positions, _fetch_market_price
 from price_monitor import record_and_detect
 from strategy_arena import run_arena, check_arena_exits
+from db import (
+    insert_signal, get_cooldown, set_cooldown, prune_cooldowns,
+    get_all_cooldowns,
+)
 
 console = Console()
-SIGNALS_LOG = Path(__file__).parent / "signals_log.json"
-SIGNAL_COOLDOWN_FILE = Path(__file__).parent / "signal_cooldown.json"
-FILTERED_LOG = Path(__file__).parent / "filtered_signals.json"
 
-
-def _log_dedup(sig, age_hours: float):
-    """Log a signal filtered by cooldown dedup."""
-    import json as _json
-    entry = {
-        "time": datetime.now(timezone.utc).isoformat(),
-        "market_id": sig.market_id,
-        "question": sig.question[:80],
-        "direction": sig.direction,
-        "edge": round(sig.edge, 4) if hasattr(sig, 'edge') else 0,
-        "reason": "cooldown_dedup",
-        "cooldown_age_hours": round(age_hours, 2),
-    }
-    try:
-        entries = _json.loads(FILTERED_LOG.read_text()) if FILTERED_LOG.exists() else []
-    except Exception:
-        entries = []
-    entries.append(entry)
-    entries = entries[-500:]
-    FILTERED_LOG.write_text(_json.dumps(entries, indent=2, ensure_ascii=False))
 SIGNAL_COOLDOWN_HOURS = 4  # Don't re-alert same market+direction within this window
 MAX_ALERTS_PER_HOUR = 5     # Discord rate limit
 
 
-def _load_cooldowns() -> dict:
-    """Load signal cooldown state: {market_id::direction: last_alert_iso}"""
-    if SIGNAL_COOLDOWN_FILE.exists():
-        try:
-            return json.loads(SIGNAL_COOLDOWN_FILE.read_text())
-        except Exception:
-            pass
-    return {}
-
-
-def _save_cooldowns(cd: dict):
-    SIGNAL_COOLDOWN_FILE.write_text(json.dumps(cd, indent=2))
+def _log_dedup(sig, age_hours: float):
+    """Log a signal filtered by cooldown dedup — stored in signals table."""
+    insert_signal({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "market_id": sig.market_id,
+        "question": sig.question[:80],
+        "direction": sig.direction,
+        "current_price": getattr(sig, "current_price", 0),
+        "ai_probability": getattr(sig, "ai_probability", 0),
+        "edge": round(sig.edge, 4) if hasattr(sig, 'edge') else 0,
+        "raw_edge": getattr(sig, "raw_edge", 0),
+        "fee_estimate": getattr(sig, "fee_estimate", 0),
+        "confidence": getattr(sig, "confidence", 0),
+        "position_size": getattr(sig, "position_size", 0),
+        "reliability": getattr(sig, "reliability", ""),
+        "news_titles": getattr(sig, "signals", {}).get("news_titles", []),
+        "llm_reasoning": getattr(sig, "signals", {}).get("llm_reasoning", ""),
+        "filter_reason": "cooldown_dedup",
+        "cooldown_age_hours": round(age_hours, 2),
+    })
 
 
 def dedup_signals(signals: list) -> list:
     """Filter out signals that were already alerted within cooldown window."""
-    cooldowns = _load_cooldowns()
     now = datetime.now(timezone.utc)
     fresh = []
-    
+
     for sig in signals:
         key = f"{sig.market_id}::{sig.direction}"
-        last_alert = cooldowns.get(key)
+        last_alert = get_cooldown(key)
         if last_alert:
             try:
                 last_dt = datetime.fromisoformat(last_alert)
@@ -89,20 +77,16 @@ def dedup_signals(signals: list) -> list:
             except Exception:
                 pass
         fresh.append(sig)
-        cooldowns[key] = now.isoformat()
-    
+        set_cooldown(key, now.isoformat())
+
     # Prune cooldowns older than 24h
     cutoff = now.timestamp() - 86400
-    cooldowns = {
-        k: v for k, v in cooldowns.items()
-        if datetime.fromisoformat(v).timestamp() > cutoff
-    }
-    _save_cooldowns(cooldowns)
-    
+    prune_cooldowns(cutoff)
+
     # Rate limit: max N per hour
     if len(fresh) > MAX_ALERTS_PER_HOUR:
         fresh = sorted(fresh, key=lambda s: abs(s.edge), reverse=True)[:MAX_ALERTS_PER_HOUR]
-    
+
     return fresh
 
 
@@ -182,7 +166,6 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
             console.print(f"  [bold red]🚨 {len(price_alerts)} price anomalies detected![/bold red]")
             for pa in price_alerts:
                 console.print(f"    [red]→[/red] {pa['title']}")
-            # Inject price alerts into news feed for analysis
             all_news = price_alerts + all_news
         else:
             console.print(f"  [dim]No anomalies[/dim]")
@@ -228,7 +211,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
     fresh_signals = dedup_signals(trade_signals)
     if len(trade_signals) != len(fresh_signals):
         console.print(f"  [dim]Dedup: {len(trade_signals)} signals → {len(fresh_signals)} fresh (cooldown={SIGNAL_COOLDOWN_HOURS}h)[/dim]")
-    
+
     save_signals(fresh_signals)
 
     # Position management — only open positions for fresh signals
@@ -271,7 +254,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
             console.print(f"  [bold yellow]📤 Closed {live_closed} live positions[/bold yellow]")
         live_open = len([p for p in get_live_positions() if p.get("status") == "open"])
         console.print(f"  Live positions: {live_open} open")
-        
+
         # Cleanup stale orders (>12h, expiring, price drifted)
         try:
             stale = cleanup_stale_orders()
@@ -279,7 +262,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
                 console.print(f"  [yellow]🗑️ Cancelled {stale} stale orders[/yellow]")
         except Exception as cleanup_err:
             console.print(f"  [yellow]⚠ Order cleanup: {cleanup_err}[/yellow]")
-        
+
         # Auto-redeem resolved markets every cycle
         try:
             redeemed = auto_redeem_resolved()
@@ -293,21 +276,13 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
     # --- Strategy Arena: run all variants on same estimates ---
     console.print("[bold cyan]🏟️  Strategy Arena: feeding estimates to all variants...[/bold cyan]")
     try:
-        # Arena gets raw estimates (not filtered trade_signals) so each strategy
-        # can apply its own edge threshold and AI discount
         run_arena(estimates, bankroll, live_trading=True)
         arena_closed = check_arena_exits(_fetch_market_price)
-        
-        # Count open arena positions (robust parsing)
-        arena_dir = Path(__file__).parent / "arena"
-        arena_opens = 0
-        for f in arena_dir.glob("positions_*.json"):
-            try:
-                if f.exists():
-                    positions = json.loads(f.read_text())
-                    arena_opens += sum(1 for p in positions if p.get("status") == "open")
-            except Exception:
-                pass
+
+        # Count open arena positions from db
+        from db import get_positions as db_get_positions
+        arena_positions = db_get_positions(mode="arena", status="open")
+        arena_opens = len(arena_positions)
         console.print(f"  Arena: {arena_opens} open positions, closed {arena_closed} this cycle")
     except Exception as e:
         console.print(f"  [dim red]Arena error: {e}[/dim red]")
@@ -409,27 +384,35 @@ def display_results(trade_signals: list[TradeSignal], estimates, news, markets):
 
 
 def save_signals(trade_signals: list[TradeSignal]):
-    existing = []
-    if SIGNALS_LOG.exists():
-        try:
-            existing = json.loads(SIGNALS_LOG.read_text())
-        except Exception:
-            existing = []
+    """Save signals to db and write ALERT.json for external cron."""
+    now = datetime.now(timezone.utc).isoformat()
 
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "signals_count": len(trade_signals),
-        "signals": [asdict(s) for s in trade_signals],
-    }
-    existing.append(entry)
-    existing = existing[-100:]
-    SIGNALS_LOG.write_text(json.dumps(existing, indent=2))
+    for sig in trade_signals:
+        d = asdict(sig)
+        insert_signal({
+            "timestamp": now,
+            "market_id": d.get("market_id"),
+            "question": d.get("question"),
+            "direction": d.get("direction"),
+            "current_price": d.get("current_price"),
+            "ai_probability": d.get("ai_probability"),
+            "edge": d.get("edge"),
+            "raw_edge": d.get("raw_edge"),
+            "fee_estimate": d.get("fee_estimate"),
+            "confidence": d.get("confidence"),
+            "position_size": d.get("position_size"),
+            "reliability": d.get("reliability"),
+            "news_titles": d.get("signals", {}).get("news_titles", []),
+            "llm_reasoning": d.get("signals", {}).get("llm_reasoning", ""),
+            "filter_reason": None,
+            "cooldown_age_hours": None,
+        })
 
-    # Write alert file when signals found — cron job picks this up
+    # Write alert file when signals found — cron job picks this up (keep as JSON)
     alert_file = Path(__file__).parent / "ALERT.json"
     if trade_signals:
         alert = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now,
             "count": len(trade_signals),
             "top_signals": [
                 {
@@ -444,7 +427,7 @@ def save_signals(trade_signals: list[TradeSignal]):
         }
         alert_file.write_text(json.dumps(alert, indent=2, ensure_ascii=False))
     elif alert_file.exists():
-        alert_file.unlink()  # Clear old alert
+        alert_file.unlink()
 
 
 def main():
@@ -497,11 +480,9 @@ def main():
         try:
             while True:
                 try:
-                    # Update heartbeat BEFORE scan so watchdog knows we're alive
                     heartbeat_file.write_text(datetime.now(timezone.utc).isoformat())
 
-                    # Timeout guard: alarm signal kills stuck scans (Unix only)
-                    scan_timeout = max(args.interval * 3, 180)  # At least 3 min
+                    scan_timeout = max(args.interval * 3, 180)
                     def _timeout_handler(signum, frame):
                         raise TimeoutError(f"Scan exceeded {scan_timeout}s timeout")
                     old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
@@ -509,7 +490,7 @@ def main():
 
                     run_scan(min_edge=args.min_edge, bankroll=args.bankroll, use_llm=args.use_llm, llm_only=args.llm_only)
 
-                    signal.alarm(0)  # Cancel alarm
+                    signal.alarm(0)
                     signal.signal(signal.SIGALRM, old_handler)
                     consecutive_errors = 0
 

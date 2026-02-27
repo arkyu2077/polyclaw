@@ -10,11 +10,9 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-console = Console()
+from db import get_positions, upsert_position, insert_trade, get_trades
 
-DATA_DIR = Path(__file__).parent
-ARENA_DIR = DATA_DIR / "arena"
-ARENA_DIR.mkdir(exist_ok=True)
+console = Console()
 
 
 @dataclass
@@ -22,24 +20,24 @@ class StrategyConfig:
     """A named strategy variant with tunable parameters."""
     name: str
     description: str
-    
+
     # Core parameters
-    kelly_fraction: float = 0.5       # 0.25=quarter, 0.5=half, 1.0=full
-    ai_discount: float = 0.5         # How much to trust AI (0.5 = half)
-    min_edge: float = 0.02           # Minimum edge to open position
-    max_position_pct: float = 0.15   # Max % of bankroll per position
-    
+    kelly_fraction: float = 0.5
+    ai_discount: float = 0.5
+    min_edge: float = 0.02
+    max_position_pct: float = 0.15
+
     # Exit parameters
-    tp_ratio: float = 0.70           # Take profit ratio
-    sl_ratio: float = 0.75           # Stop loss ratio (0.75 = 25% loss)
-    trailing_stop: bool = True       # Use trailing stop
-    trailing_activation: float = 0.5 # Activate after X% of target
-    trailing_distance: float = 0.30  # Trail distance
-    timeout_hours: float = 24        # Max hold time
-    
+    tp_ratio: float = 0.70
+    sl_ratio: float = 0.75
+    trailing_stop: bool = True
+    trailing_activation: float = 0.5
+    trailing_distance: float = 0.30
+    timeout_hours: float = 24
+
     # Filters
     max_open_positions: int = 8
-    min_confidence: float = 0.0      # Minimum confidence to enter
+    min_confidence: float = 0.0
     correlated_limit_pct: float = 0.35
 
 
@@ -58,7 +56,7 @@ STRATEGIES = {
         description="激进（全Kelly、AI打7折、85%止盈、宽止损）",
         kelly_fraction=0.75,
         ai_discount=0.7,
-        min_edge=0.01,  # Lowered from 1.5% to 1.0% to catch more signals
+        min_edge=0.01,
         tp_ratio=0.85,
         sl_ratio=0.65,
         max_open_positions=12,
@@ -83,7 +81,7 @@ STRATEGIES = {
         tp_ratio=0.50,
         sl_ratio=0.82,
         trailing_stop=False,
-        timeout_hours=6,           # 超短期：6h timeout (was 12h)
+        timeout_hours=6,
         min_confidence=0.60,
         max_open_positions=4,
     ),
@@ -104,95 +102,27 @@ STRATEGIES = {
 }
 
 
-class ArenaPosition:
-    """Simple position for arena tracking."""
-    
-    def __init__(self, market_id, question, direction, entry_price, shares, cost,
-                 target_price, stop_loss, confidence, trigger_news=""):
-        self.id = f"{market_id[:8]}_{datetime.now().strftime('%H%M%S')}"
-        self.market_id = market_id
-        self.question = question
-        self.direction = direction
-        self.entry_price = entry_price
-        self.shares = shares
-        self.cost = cost
-        self.target_price = target_price
-        self.stop_loss = stop_loss
-        self.confidence = confidence
-        self.trigger_news = trigger_news
-        self.entry_time = datetime.now(timezone.utc).isoformat()
-        self.status = "open"
-        self.exit_price = None
-        self.exit_time = None
-        self.exit_reason = None
-        self.pnl = None
-        self.peak_price = entry_price
-
-    def to_dict(self):
-        return self.__dict__
-
-    @classmethod
-    def from_dict(cls, d):
-        p = cls.__new__(cls)
-        p.__dict__.update(d)
-        return p
-
-
 class StrategyRunner:
     """Runs a single strategy variant with its own positions."""
 
     def __init__(self, config: StrategyConfig, bankroll: float = 1000.0):
         self.config = config
         self.bankroll = bankroll
-        self.positions_file = ARENA_DIR / f"positions_{config.name}.json"
-        self.history_file = ARENA_DIR / f"history_{config.name}.json"
 
-    def _load_positions(self) -> list[ArenaPosition]:
-        if self.positions_file.exists():
-            try:
-                data = json.loads(self.positions_file.read_text())
-                return [ArenaPosition.from_dict(d) for d in data]
-            except Exception:
-                pass
-        return []
-
-    def _save_positions(self, positions):
-        self.positions_file.write_text(json.dumps(
-            [p.to_dict() for p in positions], indent=2, ensure_ascii=False
-        ))
+    def _load_positions(self) -> list[dict]:
+        return get_positions(mode="arena", strategy=self.config.name)
 
     def _load_history(self) -> list[dict]:
-        if self.history_file.exists():
-            try:
-                return json.loads(self.history_file.read_text())
-            except Exception:
-                pass
-        return []
-
-    def _save_history(self, entry: dict):
-        hist = self._load_history()
-        hist.append(entry)
-        hist = hist[-200:]
-        self.history_file.write_text(json.dumps(hist, indent=2, ensure_ascii=False))
+        return get_trades(mode="arena", strategy=self.config.name)
 
     def kelly_size(self, ai_prob: float, entry_price: float, confidence: float) -> float:
-        """Kelly with strategy-specific fraction and AI discount.
-        
-        FIX: Previous version shrunk toward 0.5 which is wrong for extreme-priced
-        markets. Now we blend AI estimate toward ENTRY PRICE (market consensus),
-        not toward 50%.
-        """
-        # Blend AI estimate toward market price (entry_price) based on discount and confidence
-        # High discount = trust AI more; high confidence = trust estimate more
+        """Kelly with strategy-specific fraction and AI discount."""
         blend_factor = self.config.ai_discount * max(0.5, min(1.0, confidence))
         p = entry_price + (ai_prob - entry_price) * blend_factor
-        
-        # Clamp to reasonable range
+
         p = max(0.01, min(0.99, p))
         q = 1 - p
 
-        # Net odds: if entry is 2%, payout is 50:1 on win
-        # Allow entries down to 0.1% ($0.001)
         b = (1.0 / entry_price) - 1.0 if entry_price > 0.001 else 0
         if b <= 0:
             return 0.0
@@ -205,28 +135,26 @@ class StrategyRunner:
 
     def try_open(self, market_id, question, direction, entry_price, ai_prob, confidence, trigger=""):
         """Try to open a position using this strategy's rules."""
-        # Skip lottery tickets
         if entry_price < 0.03:
             return None
         positions = self._load_positions()
-        open_pos = [p for p in positions if p.status == "open"]
+        open_pos = [p for p in positions if p.get("status") == "open"]
 
-        # Max positions check
         if len(open_pos) >= self.config.max_open_positions:
             return None
 
-        # Duplicate check — also check recently closed (avoid re-entry after stop-loss)
-        if any(p.market_id == market_id for p in open_pos):
+        if any(p.get("market_id") == market_id for p in open_pos):
             return None
+
+        # Check recently closed (avoid re-entry after stop-loss)
         history = self._load_history()
         recent_closes = [h for h in history
                          if h.get("market_id") == market_id
-                         and h.get("closed_at")
-                         and (datetime.now(timezone.utc) - datetime.fromisoformat(h["closed_at"])).total_seconds() < 14400]
+                         and h.get("exit_time")
+                         and (datetime.now(timezone.utc) - datetime.fromisoformat(h["exit_time"])).total_seconds() < 14400]
         if recent_closes:
             return None
 
-        # Min confidence check
         if confidence < self.config.min_confidence:
             return None
 
@@ -238,17 +166,15 @@ class StrategyRunner:
         q_lower = question.lower()
         for _, keywords in CORRELATION_KEYWORDS.items():
             if any(kw in q_lower for kw in keywords):
-                corr_cost = sum(p.cost for p in open_pos if any(kw in p.question.lower() for kw in keywords))
+                corr_cost = sum(p.get("cost", 0) for p in open_pos if any(kw in (p.get("question") or "").lower() for kw in keywords))
                 if corr_cost >= self.bankroll * self.config.correlated_limit_pct:
                     return None
 
-        # Kelly sizing
         cost = self.kelly_size(ai_prob, entry_price, confidence)
         if cost < 1.0:
             return None
 
-        # Exposure cap
-        total = sum(p.cost for p in open_pos)
+        total = sum(p.get("cost", 0) for p in open_pos)
         cost = min(cost, self.bankroll - total)
         if cost < 1.0:
             return None
@@ -258,25 +184,41 @@ class StrategyRunner:
             return None
         cost = round(shares * entry_price, 2)
 
-        # Compute target/stop
         move = abs(ai_prob - entry_price)
         target = round(entry_price + move * self.config.tp_ratio, 4)
         stop = round(entry_price * self.config.sl_ratio, 4)
 
-        pos = ArenaPosition(
-            market_id=market_id, question=question, direction=direction,
-            entry_price=entry_price, shares=shares, cost=cost,
-            target_price=target, stop_loss=stop, confidence=confidence,
-            trigger_news=trigger,
-        )
-        positions.append(pos)
-        self._save_positions(positions)
+        pos_id = f"{market_id[:8]}_{datetime.now().strftime('%H%M%S')}"
+        pos = {
+            "id": pos_id,
+            "trade_id": "",
+            "mode": "arena",
+            "strategy": self.config.name,
+            "market_id": market_id,
+            "token_id": "",
+            "question": question,
+            "direction": direction,
+            "entry_price": entry_price,
+            "shares": shares,
+            "filled_shares": shares,
+            "cost": cost,
+            "target_price": target,
+            "stop_loss": stop,
+            "confidence": confidence,
+            "status": "open",
+            "order_id": "",
+            "entry_time": datetime.now(timezone.utc).isoformat(),
+            "trigger_news": str(trigger)[:200],
+            "neg_risk": 0,
+            "peak_price": entry_price,
+        }
+        upsert_position(pos)
         return pos
 
     def check_exits(self, price_fetcher) -> int:
         """Check all open positions for exits. Returns count closed."""
         positions = self._load_positions()
-        open_pos = [p for p in positions if p.status == "open"]
+        open_pos = [p for p in positions if p.get("status") == "open"]
         if not open_pos:
             return 0
 
@@ -284,73 +226,99 @@ class StrategyRunner:
         closed = 0
 
         for pos in open_pos:
-            price = price_fetcher(pos.market_id)
+            price = price_fetcher(pos["market_id"])
             if price is None or price <= 0:
                 continue
 
-            current = price if pos.direction == "BUY_YES" else (1 - price)
+            current = price if pos["direction"] == "BUY_YES" else (1 - price)
             if current <= 0:
                 continue
 
-            # Update peak
-            peak = pos.peak_price or pos.entry_price
+            peak = pos.get("peak_price") or pos["entry_price"]
             if current > peak:
-                pos.peak_price = current
+                pos["peak_price"] = current
                 peak = current
 
             reason = None
 
-            # Take profit
-            if current >= pos.target_price:
+            if current >= pos["target_price"]:
                 reason = "TAKE_PROFIT"
-            # Stop loss
-            elif current <= pos.stop_loss:
+            elif current <= pos["stop_loss"]:
                 reason = "STOP_LOSS"
-            # Trailing stop
             elif self.config.trailing_stop:
-                target_move = pos.target_price - pos.entry_price
+                target_move = pos["target_price"] - pos["entry_price"]
                 if target_move > 0:
-                    progress = (peak - pos.entry_price) / target_move
+                    progress = (peak - pos["entry_price"]) / target_move
                     if progress >= self.config.trailing_activation:
                         trail_stop = peak * (1 - self.config.trailing_distance)
-                        if current <= max(trail_stop, pos.stop_loss):
+                        if current <= max(trail_stop, pos["stop_loss"]):
                             reason = "TRAILING_STOP"
-            
-            # Timeout
+
             if not reason:
-                age_h = (now - datetime.fromisoformat(pos.entry_time)).total_seconds() / 3600
+                age_h = (now - datetime.fromisoformat(pos["entry_time"])).total_seconds() / 3600
                 if age_h > self.config.timeout_hours:
                     reason = "TIMEOUT"
 
             if reason:
-                pos.status = "closed"
-                pos.exit_price = current
-                pos.exit_time = now.isoformat()
-                pos.exit_reason = reason
-                pos.pnl = round((current - pos.entry_price) * pos.shares, 2)
-                self._save_history(pos.to_dict())
-                closed += 1
+                pnl = round((current - pos["entry_price"]) * pos["shares"], 2)
+                pos["status"] = "closed"
+                pos["exit_price"] = current
+                pos["exit_time"] = now.isoformat()
+                pos["exit_reason"] = reason
+                pos["pnl"] = pnl
+                upsert_position(pos)
 
-        self._save_positions(positions)
+                # Insert trade history
+                try:
+                    entry_dt = datetime.fromisoformat(pos["entry_time"])
+                    hours = (now - entry_dt).total_seconds() / 3600
+                except (ValueError, TypeError):
+                    hours = 0
+
+                insert_trade({
+                    "position_id": pos["id"],
+                    "mode": "arena",
+                    "strategy": self.config.name,
+                    "market_id": pos.get("market_id"),
+                    "question": pos.get("question"),
+                    "direction": pos.get("direction"),
+                    "entry_price": pos.get("entry_price"),
+                    "exit_price": current,
+                    "shares": pos.get("shares"),
+                    "cost": pos.get("cost"),
+                    "pnl": pnl,
+                    "fees": 0,
+                    "entry_time": pos.get("entry_time"),
+                    "exit_time": pos["exit_time"],
+                    "exit_reason": reason,
+                    "trigger_news": pos.get("trigger_news"),
+                    "confidence": pos.get("confidence"),
+                    "hold_hours": round(hours, 2),
+                })
+                closed += 1
+            else:
+                # Save peak price update
+                upsert_position(pos)
+
         return closed
 
     def get_stats(self, price_fetcher=None) -> dict:
         """Get performance stats for this strategy."""
         positions = self._load_positions()
         history = self._load_history()
-        open_pos = [p for p in positions if p.status == "open"]
+        open_pos = [p for p in positions if p.get("status") == "open"]
 
         realized = sum(h.get("pnl", 0) for h in history)
         unrealized = 0
-        
+
         if price_fetcher:
             for p in open_pos:
-                price = price_fetcher(p.market_id)
+                price = price_fetcher(p["market_id"])
                 if price is not None:
-                    current = price if p.direction == "BUY_YES" else (1 - price)
-                    unrealized += (current - p.entry_price) * p.shares
+                    current = price if p["direction"] == "BUY_YES" else (1 - price)
+                    unrealized += (current - p["entry_price"]) * p["shares"]
 
-        total_invested = sum(p.cost for p in open_pos)
+        total_invested = sum(p.get("cost", 0) for p in open_pos)
         wins = sum(1 for h in history if h.get("pnl", 0) > 0)
         losses = sum(1 for h in history if h.get("pnl", 0) < 0)
 
@@ -372,33 +340,25 @@ class StrategyRunner:
 
 def run_arena(estimates, bankroll: float = 1000.0, live_trading: bool = False):
     """Run all strategy variants against the same probability estimates.
-    
+
     Each strategy applies its own AI discount and edge threshold,
     so aggressive strategies may open positions that conservative ones skip.
     If live_trading=True, sniper signals also place real CLOB orders.
     """
-    # Only run active strategies
     ACTIVE_STRATEGIES = {"baseline"}
-    
+
     for name, config in STRATEGIES.items():
         if name not in ACTIVE_STRATEGIES:
             continue
         runner = StrategyRunner(config, bankroll)
-        
+
         for est in estimates:
-            # Each strategy applies its own AI discount
             market_price = est.current_price
             raw_ai = est.ai_probability
-            
-            # Re-discount with this strategy's AI discount factor
-            # (the estimate already has the global 50% discount, undo and re-apply)
-            # Actually, estimates already have ai_probability set. Each strategy
-            # just uses its own min_edge and Kelly params in try_open.
-            
-            # Determine direction: which side has more edge?
+
             yes_edge = raw_ai - market_price
             no_edge = market_price - raw_ai
-            
+
             if yes_edge > no_edge and yes_edge >= config.min_edge:
                 direction = "BUY_YES"
                 entry_price = market_price
@@ -408,25 +368,20 @@ def run_arena(estimates, bankroll: float = 1000.0, live_trading: bool = False):
                 entry_price = 1 - market_price
                 ai_prob = 1 - raw_ai
             else:
-                continue  # No edge for this strategy
-            
-            # Filter extreme prices, but allow cheap markets with sufficient edge
-            # Minimum 0.1% ($0.001) entry - true edge opportunities exist here
+                continue
+
             if entry_price < 0.001 or entry_price > 0.999:
                 continue
-            
-            # For very cheap markets (<1%), require proportionally larger edge
-            # This prevents betting on 0.5% markets based on 0.2% edge claims
+
             edge_used = yes_edge if direction == "BUY_YES" else no_edge
             if entry_price < 0.01 or entry_price > 0.99:
-                # Require edge to be at least 50% of entry price (e.g., 0.5% edge for 1% entry)
                 min_edge_for_extreme = max(config.min_edge, entry_price * 0.5)
                 if edge_used < min_edge_for_extreme:
                     continue
-            
+
             titles = est.signals.get("news_titles", [])
             trigger = est.signals.get("llm_reasoning", titles[0] if titles else "")
-            
+
             paper_pos = runner.try_open(
                 market_id=est.market_id,
                 question=est.question,
@@ -436,20 +391,17 @@ def run_arena(estimates, bankroll: float = 1000.0, live_trading: bool = False):
                 confidence=est.confidence,
                 trigger=str(trigger)[:100],
             )
-            
+
             # Live trading: if baseline opened a paper position, also place real order
             if live_trading and name == "baseline" and paper_pos is not None:
                 try:
                     from live_trader import open_live_position, get_balance, release_funds_for_signal
                     clob_ids = getattr(est, 'clob_token_ids', None) or []
                     if len(clob_ids) >= 2:
-                        # YES=clob_ids[0], NO=clob_ids[1]
                         token_id = clob_ids[0] if direction == "BUY_YES" else clob_ids[1]
-                        # Scale paper cost to real bankroll (paper=$1000, real=balance)
                         real_balance = get_balance()
                         scale = real_balance / bankroll
-                        real_cost = min(paper_pos.cost * scale, 20.0)  # cap $20
-                        # Release funds from stale orders if needed
+                        real_cost = min(paper_pos["cost"] * scale, 20.0)
                         if real_cost >= 1.0 and real_balance < real_cost:
                             real_balance = release_funds_for_signal(real_cost)
                         if real_cost >= 1.0:
@@ -461,10 +413,10 @@ def run_arena(estimates, bankroll: float = 1000.0, live_trading: bool = False):
                                 price=entry_price,
                                 size_usd=real_cost,
                                 trigger_news=str(trigger)[:100],
-                                target_price=paper_pos.target_price,
-                                stop_loss=paper_pos.stop_loss,
+                                target_price=paper_pos["target_price"],
+                                stop_loss=paper_pos["stop_loss"],
                                 ai_probability=getattr(est, 'ai_estimate', 0),
-                                edge=paper_pos.edge if hasattr(paper_pos, 'edge') else 0,
+                                edge=paper_pos.get("edge", 0),
                                 confidence=getattr(est, 'confidence', 0),
                                 source=getattr(est, 'source', 'scanner'),
                                 reasoning=getattr(est, 'reasoning', ''),
@@ -491,10 +443,9 @@ def arena_leaderboard(price_fetcher=None) -> str:
         runner = StrategyRunner(config)
         s = runner.get_stats(price_fetcher)
         stats.append(s)
-    
-    # Sort by total PnL
+
     stats.sort(key=lambda s: s["total_pnl"], reverse=True)
-    
+
     lines = ["📊 **策略竞技场排行榜**\n"]
     for i, s in enumerate(stats):
         medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i] if i < 5 else f"{i+1}."
@@ -505,5 +456,5 @@ def arena_leaderboard(price_fetcher=None) -> str:
             f"持仓{s['open_count']}笔 投入${s['invested']:.0f} | "
             f"已平{s['closed_count']}笔 胜率{s['win_rate']:.0f}%"
         )
-    
+
     return "\n".join(lines)

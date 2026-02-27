@@ -107,6 +107,10 @@ class Config:
         return self._data_path / "live_trade_history.json"
 
     @property
+    def db_path(self) -> Path:
+        return self._data_path / "polyclaw.db"
+
+    @property
     def arena_dir(self) -> Path:
         d = self._data_path / "arena"
         d.mkdir(exist_ok=True)

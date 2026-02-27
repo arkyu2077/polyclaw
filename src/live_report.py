@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import ApiCreds, BalanceAllowanceParams
 
-from .config import get_config
+from config import get_config
+from db import get_positions
 
 
 def _get_client():
@@ -131,16 +132,10 @@ def generate_report() -> str:
             report += f"{line}\n"
         report += f"\n投入: ${total_cost:.2f} | 市值: ${total_value:.2f} | **盈亏: ${total_pnl:+.2f}**\n"
 
-    # 7. Bot live positions (from our system)
-    live_positions_file = cfg.live_positions_file
-    if live_positions_file.exists():
-        try:
-            bot_pos = json.loads(live_positions_file.read_text())
-            bot_open = [p for p in bot_pos if p.get("status") == "open"]
-            if bot_open:
-                report += f"\n🤖 Bot仓位: {len(bot_open)}个活跃\n"
-        except Exception:
-            pass
+    # 7. Bot live positions (from db)
+    bot_open = get_positions(mode="live", status="open")
+    if bot_open:
+        report += f"\n🤖 Bot仓位: {len(bot_open)}个活跃\n"
 
     # Total assets = initial bankroll + total P&L from all trades
     initial = cfg.bankroll

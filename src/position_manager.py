@@ -11,69 +11,59 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-console = Console()
+from db import get_positions, upsert_position, insert_trade, get_trades
 
-DATA_DIR = Path(__file__).parent
-POSITIONS_FILE = DATA_DIR / "positions.json"
-HISTORY_FILE = DATA_DIR / "trade_history.json"
+console = Console()
 
 # Risk parameters
 MAX_OPEN_POSITIONS = 8
-MAX_POSITION_PCT = 0.15      # 15% bankroll per position (hard cap even if Kelly says more)
-MAX_TOTAL_EXPOSURE_PCT = 1.00  # 100% total — Kelly controls sizing
+MAX_POSITION_PCT = 0.15
+MAX_TOTAL_EXPOSURE_PCT = 1.00
 COOLDOWN_HOURS = 1
 TIMEOUT_HOURS = 24
-TIMEOUT_MOVE_THRESHOLD = 0.02  # <2% move = "no movement"
+TIMEOUT_MOVE_THRESHOLD = 0.02
 
 # Exit strategy parameters
-BASE_TP_RATIO = 0.70         # Base: take 70% of expected move
-HIGH_CONF_TP_RATIO = 0.85    # High confidence (>0.75): take 85%
-LOW_CONF_TP_RATIO = 0.55     # Low confidence (<0.55): take 55%
-BASE_SL_RATIO = 0.75         # Base: stop at 25% loss
-WIDE_SL_RATIO = 0.65         # Small Kelly positions: wider stop (35% loss)
-TIGHT_SL_RATIO = 0.82        # Large Kelly positions: tighter stop (18% loss)
-TRAILING_STOP_ACTIVATION = 0.5  # Activate trailing stop after 50% of target move
-TRAILING_STOP_DISTANCE = 0.30   # Trail at 30% below peak
-FEE_RATE = 0.003             # ~0.3% spread cost only (most markets are fee-free!)
-KELLY_FRACTION = 0.5         # Half-Kelly for safety
+BASE_TP_RATIO = 0.70
+HIGH_CONF_TP_RATIO = 0.85
+LOW_CONF_TP_RATIO = 0.55
+BASE_SL_RATIO = 0.75
+WIDE_SL_RATIO = 0.65
+TIGHT_SL_RATIO = 0.82
+TRAILING_STOP_ACTIVATION = 0.5
+TRAILING_STOP_DISTANCE = 0.30
+FEE_RATE = 0.003
+KELLY_FRACTION = 0.5
+
 def kelly_size(ai_probability: float, entry_price: float, confidence: float, bankroll: float) -> float:
     """
     Half-Kelly position sizing for binary prediction markets.
-    
+
     NOTE: ai_probability should ALREADY be discounted (by probability_engine).
     AI discount (50%) is applied upstream when generating estimates.
-    
+
     FIX: Previous version shrunk toward 0.5 which is wrong for extreme-priced
     markets. Now we blend AI estimate toward ENTRY PRICE (market consensus),
     not toward 50%.
     """
-    # Blend AI estimate toward market price (entry_price) based on confidence
-    # High confidence = trust AI more; low confidence = trust market more
     blend_factor = max(0.5, min(1.0, confidence))
     p = entry_price + (ai_probability - entry_price) * blend_factor
-    
-    # Clamp to reasonable range
+
     p = max(0.01, min(0.99, p))
     q = 1 - p
-    
-    # Net odds after fees
-    # Allow entries down to 0.1% ($0.001)
+
     net_profit_per_share = (1 - entry_price) * (1 - FEE_RATE)
     if entry_price <= 0.001 or net_profit_per_share <= 0:
         return 0
     b = net_profit_per_share / entry_price
-    
-    # Full Kelly
+
     f_star = (b * p - q) / b
     if f_star <= 0:
-        return 0  # No edge — don't bet
-    
-    # Half Kelly
+        return 0
+
     f_half = f_star * KELLY_FRACTION
-    
-    # Cap at MAX_POSITION_PCT
     f_capped = min(f_half, MAX_POSITION_PCT)
-    
+
     return round(bankroll * f_capped, 2)
 
 
@@ -96,54 +86,85 @@ class Position:
     pnl: float | None = None
     trigger_news: str = ""
     confidence: float = 0.7
-    peak_price: float | None = None  # Highest price seen (for trailing stop)
+    peak_price: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Position":
-        # Handle any extra/missing fields gracefully
         valid = {f.name for f in cls.__dataclass_fields__.values()}
         return cls(**{k: v for k, v in d.items() if k in valid})
 
+    def to_db_dict(self) -> dict:
+        """Convert to db-compatible dict with mode field."""
+        d = self.to_dict()
+        d["mode"] = "paper"
+        d["strategy"] = ""
+        d["token_id"] = ""
+        d["filled_shares"] = self.shares
+        d["order_id"] = ""
+        d["neg_risk"] = 0
+        d.setdefault("trade_id", "")
+        return d
+
 
 def _load_positions() -> list[Position]:
-    if not POSITIONS_FILE.exists():
-        return []
-    try:
-        data = json.loads(POSITIONS_FILE.read_text())
-        return [Position.from_dict(d) for d in data]
-    except Exception:
-        return []
+    rows = get_positions(mode="paper")
+    result = []
+    for r in rows:
+        try:
+            result.append(Position.from_dict(r))
+        except Exception:
+            pass
+    return result
 
 
 def _save_positions(positions: list[Position]):
-    POSITIONS_FILE.write_text(json.dumps([p.to_dict() for p in positions], indent=2))
+    for p in positions:
+        upsert_position(p.to_db_dict())
 
 
 def _append_history(position: Position):
-    history = []
-    if HISTORY_FILE.exists():
-        try:
-            history = json.loads(HISTORY_FILE.read_text())
-        except Exception:
-            history = []
-    history.append(position.to_dict())
-    HISTORY_FILE.write_text(json.dumps(history, indent=2))
+    d = position.to_dict()
+    try:
+        entry_dt = datetime.fromisoformat(d.get("entry_time", ""))
+        exit_dt = datetime.fromisoformat(d.get("exit_time", ""))
+        hours = (exit_dt - entry_dt).total_seconds() / 3600
+    except (ValueError, TypeError):
+        hours = 0
+
+    insert_trade({
+        "position_id": d["id"],
+        "mode": "paper",
+        "strategy": "",
+        "market_id": d.get("market_id"),
+        "question": d.get("question"),
+        "direction": d.get("direction"),
+        "entry_price": d.get("entry_price"),
+        "exit_price": d.get("exit_price"),
+        "shares": d.get("shares"),
+        "cost": d.get("cost"),
+        "pnl": d.get("pnl"),
+        "fees": 0,
+        "entry_time": d.get("entry_time"),
+        "exit_time": d.get("exit_time"),
+        "exit_reason": d.get("exit_reason"),
+        "trigger_news": d.get("trigger_news"),
+        "confidence": d.get("confidence"),
+        "hold_hours": round(hours, 2),
+    })
 
 
 def _fetch_market_price(market_id: str) -> float | None:
     """Fetch fresh price for a market from Gamma API.
     Handles both numeric IDs and condition_id (long hex) formats."""
     headers = {"User-Agent": "Mozilla/5.0"}
-    
-    # Try numeric ID first, then condition_id
+
     urls = [f"https://gamma-api.polymarket.com/markets?id={market_id}"]
     if len(str(market_id)) > 20:
-        # Long ID = likely condition_id, try that param instead
         urls = [f"https://gamma-api.polymarket.com/markets?condition_id={market_id}"]
-    
+
     for url in urls:
         try:
             resp = httpx.get(url, timeout=15, headers=headers)
@@ -155,11 +176,10 @@ def _fetch_market_price(market_id: str) -> float | None:
             if isinstance(prices, str):
                 prices = json.loads(prices)
             if prices:
-                return float(prices[0])  # YES price
+                return float(prices[0])
         except Exception:
             continue
-    
-    # Silent fail for known stale positions (don't spam logs)
+
     return None
 
 
@@ -178,34 +198,31 @@ def open_position(
     open_positions = [p for p in positions if p.status == "open"]
     now = datetime.now(timezone.utc)
 
-    # --- Risk checks ---
     if len(open_positions) >= MAX_OPEN_POSITIONS:
         console.print(f"[yellow]  ⚠ Max positions ({MAX_OPEN_POSITIONS}) reached, skipping[/yellow]")
         return None
 
-    # No duplicate market
     if any(p.market_id == market_id for p in open_positions):
         console.print(f"[yellow]  ⚠ Already have position on this market, skipping[/yellow]")
         return None
 
-    # Correlated position check — DISABLED per Yu's request (don't limit indirect correlations)
-    # Focus on ultra-short-term trades where correlation risk is minimal
+    # Cooldown check — use trades table
+    closed_trades = get_trades(mode="paper")
+    for ct in closed_trades:
+        if ct.get("market_id") == market_id and ct.get("exit_time"):
+            try:
+                exit_dt = datetime.fromisoformat(ct["exit_time"])
+                if now - exit_dt < timedelta(hours=COOLDOWN_HOURS):
+                    console.print(f"[yellow]  ⚠ Cooldown active for this market (exited {ct['exit_time']})[/yellow]")
+                    return None
+            except (ValueError, TypeError):
+                pass
 
-    # Cooldown check
-    closed_same = [p for p in positions if p.market_id == market_id and p.status == "closed" and p.exit_time]
-    for cp in closed_same:
-        exit_dt = datetime.fromisoformat(cp.exit_time)
-        if now - exit_dt < timedelta(hours=COOLDOWN_HOURS):
-            console.print(f"[yellow]  ⚠ Cooldown active for this market (exited {cp.exit_time})[/yellow]")
-            return None
-
-    # --- Half-Kelly position sizing ---
     kelly_cost = kelly_size(ai_probability, entry_price, confidence, bankroll)
     if kelly_cost < 1.0:
         console.print(f"[yellow]  ⚠ Kelly says no edge (ai={ai_probability:.1%} vs price={entry_price:.1%}, conf={confidence:.0%}) → $0[/yellow]")
         return None
 
-    # Apply total exposure cap
     total_invested = sum(p.cost for p in open_positions)
     max_remaining = bankroll * MAX_TOTAL_EXPOSURE_PCT - total_invested
     allowed_cost = min(kelly_cost, max(0, max_remaining))
@@ -214,36 +231,31 @@ def open_position(
         console.print(f"[yellow]  ⚠ Exposure limit reached (${total_invested:.0f} invested)[/yellow]")
         return None
 
-    # Calculate shares
     shares = int(allowed_cost / entry_price) if entry_price > 0 else 0
     if shares < 3:
         console.print(f"[yellow]  ⚠ Position too small ({shares} shares, ${allowed_cost:.1f}), skipping[/yellow]")
         return None
     cost = round(shares * entry_price, 2)
 
-    # Log Kelly calculation
     adj_p = 0.5 + (ai_probability - 0.5) * confidence
     console.print(f"[dim]  📐 Kelly: p={adj_p:.1%} c={entry_price:.1%} → half-kelly=${kelly_cost:.0f}, actual=${cost:.0f}[/dim]")
 
-    # --- Adaptive exit strategy ---
-    # Take profit: ratio scales with confidence
     if confidence >= 0.75:
-        tp_ratio = HIGH_CONF_TP_RATIO  # 85% — confident, let it run
+        tp_ratio = HIGH_CONF_TP_RATIO
     elif confidence <= 0.55:
-        tp_ratio = LOW_CONF_TP_RATIO   # 55% — less sure, grab early
+        tp_ratio = LOW_CONF_TP_RATIO
     else:
-        tp_ratio = BASE_TP_RATIO       # 70% — default
+        tp_ratio = BASE_TP_RATIO
 
     target_price = round(entry_price + (ai_probability - entry_price) * tp_ratio, 4)
 
-    # Stop loss: scales inversely with position size (small pos = wider stop)
     kelly_pct = cost / bankroll
     if kelly_pct <= 0.03:
-        sl_ratio = WIDE_SL_RATIO       # 35% loss OK for tiny positions
+        sl_ratio = WIDE_SL_RATIO
     elif kelly_pct >= 0.10:
-        sl_ratio = TIGHT_SL_RATIO      # 18% loss for big positions
+        sl_ratio = TIGHT_SL_RATIO
     else:
-        sl_ratio = BASE_SL_RATIO       # 25% default
+        sl_ratio = BASE_SL_RATIO
 
     stop_loss = round(entry_price * sl_ratio, 4)
 
@@ -265,8 +277,7 @@ def open_position(
         peak_price=entry_price,
     )
 
-    positions.append(pos)
-    _save_positions(positions)
+    upsert_position(pos.to_db_dict())
     console.print(f"[bold green]  ✅ OPENED position: {direction} {shares} shares @ {entry_price:.1%} → target {target_price:.1%} / stop {stop_loss:.1%}[/bold green]")
     return pos
 
@@ -280,9 +291,10 @@ def _close_position(pos: Position, exit_price: float, reason: str):
 
     if pos.direction == "BUY_YES":
         pos.pnl = round((exit_price - pos.entry_price) * pos.shares, 2)
-    else:  # BUY_NO
+    else:
         pos.pnl = round((pos.entry_price - exit_price) * pos.shares, 2)
 
+    upsert_position(pos.to_db_dict())
     _append_history(pos)
     _log_calibration(pos)
     icon = "🟢" if (pos.pnl or 0) >= 0 else "🔴"
@@ -292,46 +304,20 @@ def _close_position(pos: Position, exit_price: float, reason: str):
     )
 
 
-CALIBRATION_FILE = Path(__file__).parent / "calibration_log.json"
-
 def _log_calibration(pos: Position):
-    """Record AI prediction vs actual outcome for calibration analysis."""
-    try:
-        existing = json.loads(CALIBRATION_FILE.read_text()) if CALIBRATION_FILE.exists() else []
-    except Exception:
-        existing = []
-    
-    # Did our prediction direction work?
-    won = (pos.pnl or 0) > 0
-    
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "market_id": pos.market_id,
-        "question": pos.question[:80],
-        "direction": pos.direction,
-        "entry_price": pos.entry_price,
-        "exit_price": pos.exit_price,
-        "target_price": pos.target_price,
-        "stop_loss": pos.stop_loss,
-        "confidence": pos.confidence,
-        "pnl": pos.pnl,
-        "pnl_pct": round((pos.exit_price - pos.entry_price) / pos.entry_price * 100, 2) if pos.entry_price else 0,
-        "exit_reason": pos.exit_reason,
-        "won": won,
-        "trigger_news": pos.trigger_news[:100],
-        "hold_hours": round((datetime.fromisoformat(pos.exit_time) - datetime.fromisoformat(pos.entry_time)).total_seconds() / 3600, 1) if pos.exit_time and pos.entry_time else 0,
-    }
-    existing.append(entry)
-    existing = existing[-500:]  # Keep last 500
-    CALIBRATION_FILE.write_text(json.dumps(existing, indent=2, ensure_ascii=False))
+    """Record AI prediction vs actual outcome for calibration analysis.
+    Now stored as a trade in the trades table — can be queried from there."""
+    # Calibration data is embedded in the trades table (confidence, pnl, exit_reason, etc.)
+    # No separate file needed; the insert_trade in _append_history covers it.
+    pass
 
 
 def check_exits() -> int:
     """Check all open positions for exit conditions with trailing stop.
-    
+
     Exit priority:
     1. Take profit — hit target price
-    2. Stop loss — hit stop price  
+    2. Stop loss — hit stop price
     3. Trailing stop — price dropped 30% from peak (after 50% of target move)
     4. Timeout — 24h with <2% move
     5. Time acceleration — tighten stops as market expiration approaches
@@ -349,19 +335,15 @@ def check_exits() -> int:
         if yes_price is None:
             continue
 
-        # Current price depends on direction
         if pos.direction == "BUY_YES":
             current = yes_price
         else:
             current = 1 - yes_price
 
-        # Update peak price (for trailing stop)
         peak = pos.peak_price or pos.entry_price
         if current > peak:
             pos.peak_price = current
             peak = current
-
-        # --- Exit checks ---
 
         # 1. Take profit
         if current >= pos.target_price:
@@ -375,14 +357,12 @@ def check_exits() -> int:
             closed_count += 1
             continue
 
-        # 3. Trailing stop — activates after price moves 50%+ toward target
+        # 3. Trailing stop
         target_move = pos.target_price - pos.entry_price
         if target_move > 0:
             progress = (peak - pos.entry_price) / target_move
             if progress >= TRAILING_STOP_ACTIVATION:
-                # Trail at 30% below peak
                 trail_stop = peak * (1 - TRAILING_STOP_DISTANCE)
-                # Trailing stop must be above original stop loss
                 effective_trail = max(trail_stop, pos.stop_loss)
                 if current <= effective_trail:
                     profit_locked = (current - pos.entry_price) * pos.shares
@@ -394,7 +374,6 @@ def check_exits() -> int:
         entry_dt = datetime.fromisoformat(pos.entry_time)
         age_hours = (now - entry_dt).total_seconds() / 3600
 
-        # After 12h: tighten stop loss by 50% (halfway between current stop and entry)
         if age_hours > 12 and age_hours <= 24:
             tightened_stop = (pos.stop_loss + pos.entry_price) / 2
             if current <= tightened_stop:
@@ -402,7 +381,7 @@ def check_exits() -> int:
                 closed_count += 1
                 continue
 
-        # 5. Timeout — 24h with no movement
+        # 5. Timeout
         if age_hours > TIMEOUT_HOURS:
             move = abs(current - pos.entry_price)
             if move < TIMEOUT_MOVE_THRESHOLD:
@@ -410,12 +389,13 @@ def check_exits() -> int:
                 closed_count += 1
                 continue
             else:
-                # 24h+ but price moved: close anyway, position is stale
                 _close_position(pos, current, "TIMEOUT_AGED")
                 closed_count += 1
                 continue
 
-    _save_positions(positions)
+        # Save peak price update
+        upsert_position(pos.to_db_dict())
+
     return closed_count
 
 
@@ -423,23 +403,23 @@ def get_summary(bankroll: float = 1000.0) -> dict:
     """Get portfolio summary stats."""
     positions = _load_positions()
     open_pos = [p for p in positions if p.status == "open"]
-    closed_pos = [p for p in positions if p.status == "closed"]
+    closed_trades = get_trades(mode="paper")
 
     total_invested = sum(p.cost for p in open_pos)
-    winners = [p for p in closed_pos if (p.pnl or 0) > 0]
-    realized_pnl = sum(p.pnl or 0 for p in closed_pos)
-    win_rate = len(winners) / len(closed_pos) if closed_pos else 0
+    winners = [t for t in closed_trades if (t.get("pnl") or 0) > 0]
+    realized_pnl = sum(t.get("pnl") or 0 for t in closed_trades)
+    win_rate = len(winners) / len(closed_trades) if closed_trades else 0
 
     return {
         "open_count": len(open_pos),
         "max_positions": MAX_OPEN_POSITIONS,
         "total_invested": total_invested,
         "exposure_pct": total_invested / bankroll if bankroll > 0 else 0,
-        "closed_count": len(closed_pos),
+        "closed_count": len(closed_trades),
         "realized_pnl": realized_pnl,
         "win_rate": win_rate,
         "open_positions": open_pos,
-        "closed_positions": closed_pos,
+        "closed_positions": [Position.from_dict(t) for t in closed_trades if "entry_price" in t],
     }
 
 
@@ -493,10 +473,11 @@ def display_positions(bankroll: float = 1000.0):
 
     # Closed today
     today = now.date()
-    closed_today = [p for p in summary["closed_positions"]
-                    if p.exit_time and datetime.fromisoformat(p.exit_time).date() == today]
-    today_pnl = sum(p.pnl or 0 for p in closed_today)
-    today_winners = len([p for p in closed_today if (p.pnl or 0) > 0])
+    closed_trades = get_trades(mode="paper")
+    closed_today = [t for t in closed_trades
+                    if t.get("exit_time") and datetime.fromisoformat(t["exit_time"]).date() == today]
+    today_pnl = sum(t.get("pnl") or 0 for t in closed_today)
+    today_winners = len([t for t in closed_today if (t.get("pnl") or 0) > 0])
     today_wr = today_winners / len(closed_today) * 100 if closed_today else 0
 
     console.print(
