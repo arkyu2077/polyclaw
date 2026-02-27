@@ -1,4 +1,4 @@
-# Polymarket News Edge — Strategy Configuration
+# Polyclaw — Strategy Configuration
 # Copy this to config.yaml to override default strategy parameters.
 # Secrets (private key, API keys, webhooks) belong in .env — NOT here.
 

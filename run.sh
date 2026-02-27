@@ -8,7 +8,7 @@ if [ -d ".venv" ]; then
 fi
 
 # Start scanner
-echo "🚀 Starting Polymarket News Edge scanner..."
+echo "🚀 Starting Polyclaw scanner..."
 nohup python3 src/scanner.py --monitor --interval 90 --use-llm >> data/scanner.log 2>&1 &
 PID=$!
 echo $PID > data/scanner.pid

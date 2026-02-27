@@ -1,4 +1,4 @@
-# Polymarket News Edge
+# Polyclaw
 
 AI-powered news edge scanner and auto-trader for [Polymarket](https://polymarket.com) prediction markets. Ingests news from 10+ sources in real-time, matches headlines to active markets, estimates probability shifts, calculates fee-adjusted edges using Kelly criterion, and auto-trades via Polymarket's CLOB API on Polygon.
 
@@ -148,8 +148,8 @@ The Strategy Arena paper-trades all five variants simultaneously so you can comp
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/USER/polymarket-news-edge.git
-cd polymarket-news-edge
+git clone https://github.com/arkyu2077/polyclaw.git
+cd polyclaw
 ./setup.sh
 ```
 
@@ -379,4 +379,4 @@ This software is provided for **educational and research purposes only**.
 
 ## License
 
-[MIT](LICENSE) &copy; 2026 Jasmine Zhang
+[MIT](LICENSE) &copy; 2026 arkYu

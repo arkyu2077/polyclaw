@@ -28,7 +28,7 @@ load_dotenv()
 
 @dataclass
 class Config:
-    """All configuration for the Polymarket News Edge bot."""
+    """All configuration for the Polyclaw bot."""
 
     # Required — loaded from env vars
     private_key: str = ""
@@ -166,7 +166,7 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         candidates = [
             Path.cwd() / "config.yaml",
             Path(__file__).parent.parent / "config.yaml",
-            Path.home() / ".config" / "polymarket-news-edge" / "config.yaml",
+            Path.home() / ".config" / "polyclaw" / "config.yaml",
         ]
         env_path = os.environ.get("POLYMARKET_CONFIG")
         if env_path:

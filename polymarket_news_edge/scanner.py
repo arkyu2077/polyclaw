@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Polymarket News Edge Scanner — main orchestrator."""
+"""Polyclaw — main orchestrator."""
 
 import json
 import time
@@ -232,7 +232,7 @@ def save_signals(trade_signals: list[TradeSignal]):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Polymarket News Edge Scanner")
+    parser = argparse.ArgumentParser(description="Polyclaw Scanner")
     parser.add_argument("--scan", action="store_true", help="One-shot scan")
     parser.add_argument("--monitor", action="store_true", help="Continuous monitoring")
     parser.add_argument("--min-edge", type=float, default=0.03, help="Min edge after fees (default: 0.03)")
@@ -248,7 +248,7 @@ def main():
         return
 
     console.print(Panel(
-        "[bold]Polymarket News Edge Scanner v2[/bold]\n"
+        "[bold]Polyclaw Scanner v2[/bold]\n"
         "Category-aware matching · Directional probability · Fee-adjusted edges\n"
         + ("[magenta]🤖 Gemini LLM enabled[/magenta]\n" if (args.use_llm or args.llm_only) else "")
         + "[dim]Paper trading only — no real trades[/dim]",

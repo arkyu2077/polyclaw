@@ -1,12 +1,12 @@
 ---
-name: polymarket-news-edge
-description: AI-powered news information advantage scanner for Polymarket. Ingests real-time news from 8 sources (Reuters, AP, Bloomberg, CoinDesk, CoinGecko, Fear & Greed, BlockBeats, PANews), matches to Polymarket markets using category-aware fuzzy matching, optionally refines with Gemini LLM analysis, estimates probability shifts, detects fee-adjusted trading edges, and manages paper trading positions with auto TP/SL.
+name: polyclaw
+description: AI-powered news edge scanner and auto-trader for Polymarket. Ingests real-time news from 10+ sources, matches to Polymarket markets using category-aware fuzzy matching, estimates probability shifts, detects fee-adjusted trading edges, and auto-trades via CLOB API.
 version: "1.1.0"
 license: MIT
 allowed-tools: Read,Write,Bash(python:*),WebFetch
 ---
 
-# Polymarket News Edge Scanner
+# Polyclaw
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ allowed-tools: Read,Write,Bash(python:*),WebFetch
 
 ```bash
 # Install dependencies
-cd skills/polymarket-news-edge/scripts
+cd polyclaw/src
 pip install -r requirements.txt
 
 # Run a single scan

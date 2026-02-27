@@ -1,7 +1,7 @@
-"""Polymarket News Edge Scanner — AI-powered information advantage detection."""
+"""Polyclaw — AI-powered news edge scanner and auto-trader for Polymarket."""
 
 __version__ = "1.1.0"
-__author__ = "Jasmine Zhang"
+__author__ = "arkYu"
 
 from .edge_calculator import TradeSignal, find_edges
 from .probability_engine import ProbEstimate, compute_estimates

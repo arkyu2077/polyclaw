@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-echo "🚀 Polymarket News Edge — Setup"
+echo "🚀 Polyclaw — Setup"
 echo ""
 
 # Check Python
