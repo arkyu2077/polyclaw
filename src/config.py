@@ -14,6 +14,7 @@ Optional config.yaml (non-secret strategy params):
 """
 
 import os
+import re
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -120,8 +121,8 @@ class Config:
         """Validate config and return list of errors."""
         errors = []
 
-        if not self.private_key or not self.private_key.startswith("0x"):
-            errors.append("POLYMARKET_PRIVATE_KEY must be set and start with 0x")
+        if not self.private_key or not re.fullmatch(r'0x[0-9a-fA-F]{64}', self.private_key):
+            errors.append("POLYMARKET_PRIVATE_KEY must be 0x followed by 64 hex characters")
 
         if self.bankroll <= 0:
             errors.append("bankroll must be positive")

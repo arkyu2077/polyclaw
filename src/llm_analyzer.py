@@ -2,7 +2,6 @@
 
 import json
 import re
-import subprocess
 import time
 from pathlib import Path
 from dataclasses import dataclass

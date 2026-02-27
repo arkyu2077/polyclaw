@@ -340,6 +340,7 @@ def get_pending_notifications() -> list[dict]:
 def mark_notifications_consumed(ids: list[int]):
     if not ids:
         return
+    ids = [int(i) for i in ids]  # enforce integer type
     conn = get_db()
     placeholders = ", ".join(["?"] * len(ids))
     conn.execute(f"UPDATE notifications SET consumed = 1 WHERE id IN ({placeholders})", ids)

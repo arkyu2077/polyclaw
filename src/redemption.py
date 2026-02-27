@@ -20,7 +20,7 @@ def auto_redeem_resolved() -> float:
     cfg = get_config()
 
     # Find RPCs
-    for rpc in [cfg.rpc_url, 'https://polygon.meowrpc.com']:
+    for rpc in [cfg.rpc_url]:
         try:
             w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={'timeout': 10}))
             if w3.is_connected():
@@ -88,13 +88,16 @@ def auto_redeem_resolved() -> float:
 
             cid_bytes = bytes.fromhex(condition_id[2:]) if condition_id.startswith('0x') else bytes.fromhex(condition_id)
             nonce = w3.eth.get_transaction_count(account, 'pending')
+            base_fee = w3.eth.get_block('latest').get('baseFeePerGas', w3.to_wei(30, 'gwei'))
+            max_fee = min(int(base_fee * 2) + w3.to_wei(2, 'gwei'), w3.to_wei(150, 'gwei'))
+            priority_fee = min(w3.to_wei(30, 'gwei'), max_fee)
 
             tx = ctf.functions.redeemPositions(
                 collateral, b'\x00' * 32, cid_bytes, [1, 2]
             ).build_transaction({
                 'from': account, 'nonce': nonce, 'gas': 300000,
-                'maxFeePerGas': w3.to_wei(100, 'gwei'),
-                'maxPriorityFeePerGas': w3.to_wei(50, 'gwei'),
+                'maxFeePerGas': max_fee,
+                'maxPriorityFeePerGas': priority_fee,
                 'chainId': 137
             })
 
@@ -112,8 +115,8 @@ def auto_redeem_resolved() -> float:
             else:
                 console.print(f"[red]  ❌ Redeem failed for {condition_id[:20]}[/red]")
 
-        except Exception as e:
-            console.print(f"[yellow]  ⚠ Redeem check error: {e}[/yellow]")
+        except Exception:
+            console.print(f"[yellow]  ⚠ Redeem check error for {condition_id[:16]}[/yellow]")
             continue
 
     return redeemed_total

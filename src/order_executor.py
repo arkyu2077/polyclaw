@@ -85,7 +85,7 @@ def place_limit_order(
                 return None
             price = best_bid
     except Exception as e:
-        console.print(f"[dim]  ⚠ Orderbook check failed: {e}, using original price + 2c bump[/dim]")
+        console.print(f"[dim]  ⚠ Orderbook check failed (using original price + 2c bump)[/dim]")
         if side == "BUY":
             price = min(round(price + 0.02, 4), 0.99)
         else:
@@ -130,8 +130,8 @@ def place_limit_order(
         console.print(f"[dim]  Order ID: {result.get('orderID', '?')}[/dim]")
 
         return result
-    except Exception as e:
-        console.print(f"[red]  ❌ Order failed: {e}[/red]")
+    except Exception:
+        console.print("[red]  ❌ Order failed[/red]")
         return None
 
 

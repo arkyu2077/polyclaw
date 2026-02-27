@@ -11,3 +11,31 @@ build/
 venv/
 .env
 config.yaml
+
+# Runtime data and databases
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Log files
+*.log
+logs/
+
+# Key and credential files
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Scanner runtime files
+scanner.lock
+scanner.pid
+scanner_heartbeat
+
+# LLM runtime files
+llm_request.json
+llm_response.json
+
+# OS artifacts
+.DS_Store

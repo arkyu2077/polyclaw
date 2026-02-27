@@ -50,7 +50,7 @@ WEATHER_CITIES = {
 
 
 def _item_id(title: str, source: str) -> str:
-    return hashlib.md5(f"{source}:{title}".encode()).hexdigest()
+    return hashlib.sha256(f"{source}:{title}".encode()).hexdigest()[:32]
 
 
 def _strip_html(text: str) -> str:
