@@ -17,10 +17,6 @@ from db import get_positions, get_daily_pnl, add_notification
 
 console = Console()
 
-# Safety limits
-MAX_ORDER_SIZE_USD = 20.0
-MAX_DAILY_LOSS_USD = 40.0
-MAX_OPEN_POSITIONS = 8
 
 
 def _get_client() -> ClobClient:
@@ -94,13 +90,14 @@ def place_limit_order(
     size = int(size)
     cost = size * price
 
-    # Safety checks
-    if cost > MAX_ORDER_SIZE_USD:
-        console.print(f"[red]  ❌ Order too large: ${cost:.2f} > ${MAX_ORDER_SIZE_USD}[/red]")
+    # Safety checks (all limits from config.yaml)
+    cfg = get_config()
+    if cost > cfg.max_order_size:
+        console.print(f"[red]  ❌ Order too large: ${cost:.2f} > ${cfg.max_order_size}[/red]")
         return None
 
     daily_loss = get_daily_pnl(mode="live")
-    if daily_loss < -MAX_DAILY_LOSS_USD:
+    if daily_loss < -cfg.daily_loss_limit:
         console.print(f"[red]  ❌ Daily loss limit hit: ${daily_loss:.2f}[/red]")
         return None
 
@@ -110,8 +107,8 @@ def place_limit_order(
         return None
 
     open_pos = get_positions(mode="live", status="open")
-    if len(open_pos) >= MAX_OPEN_POSITIONS:
-        console.print(f"[red]  ❌ Max positions ({MAX_OPEN_POSITIONS}) reached[/red]")
+    if len(open_pos) >= cfg.max_positions:
+        console.print(f"[red]  ❌ Max positions ({cfg.max_positions}) reached[/red]")
         return None
 
     client = _get_client()

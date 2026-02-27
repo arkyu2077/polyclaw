@@ -29,3 +29,107 @@ max_exposure_pct: 1.0
 
 # Minimum edge after fees to open position (0.02 = 2%)
 min_edge: 0.02
+
+# ─── POSITION SIZING ───────────────────────────────────────────────────────
+
+# Max single position as fraction of bankroll
+max_position_pct: 0.15
+
+# Hours to wait before re-entering same market after exit
+cooldown_hours: 1.0
+
+# Close position after this many hours if price hasn't moved
+timeout_hours: 24.0
+
+# Minimum price move to avoid timeout exit
+timeout_move_threshold: 0.02
+
+# Kelly criterion fraction (0.5 = half-Kelly)
+kelly_fraction: 0.5
+
+# Estimated trading fee rate for Kelly sizing
+fee_rate: 0.003
+
+# ─── EXIT STRATEGY ─────────────────────────────────────────────────────────
+
+# Take profit: fraction of predicted move to capture
+tp_ratio: 0.70
+
+# TP ratio when confidence >= 75%
+high_conf_tp_ratio: 0.85
+
+# TP ratio when confidence <= 55%
+low_conf_tp_ratio: 0.55
+
+# Stop loss: exit when price drops to this fraction of entry
+sl_ratio: 0.75
+
+# Wide SL for small positions (kelly_pct <= 3%)
+wide_sl_ratio: 0.65
+
+# Tight SL for large positions (kelly_pct >= 10%)
+tight_sl_ratio: 0.82
+
+# Trailing stop activates after this fraction of target move achieved
+trailing_stop_activation: 0.5
+
+# Trailing stop distance from peak (30% pullback from peak)
+trailing_stop_distance: 0.30
+
+# ─── LIVE EXIT ─────────────────────────────────────────────────────────────
+
+# Close live positions after this many hours
+live_timeout_hours: 6.0
+
+# Cancel unfilled orders older than this
+stale_order_hours: 12.0
+
+# Cancel orders when market price drifted more than this from order price
+price_drift_threshold: 0.20
+
+# ─── EDGE CALCULATOR ──────────────────────────────────────────────────────
+
+# Minimum edge after spread to open position
+min_edge_threshold: 0.02
+
+# Maximum Kelly fraction cap
+max_kelly_fraction: 0.10
+
+# Minimum shares required to open position
+min_shares: 5
+
+# ─── SIGNAL DEDUP ──────────────────────────────────────────────────────────
+
+# Don't re-alert same market+direction within this window (hours)
+signal_cooldown_hours: 4.0
+
+# Maximum alerts per hour (Discord rate limit)
+max_alerts_per_hour: 5
+
+# ─── LLM ───────────────────────────────────────────────────────────────────
+
+# Discount factor for AI probability estimates (0.5 = trust 50% of predicted move)
+ai_estimate_discount: 0.5
+
+# LLM provider: "file" (cron-based), "gemini", "openai", "anthropic"
+llm_provider: "file"
+
+# LLM model override (leave empty for provider default)
+# Examples: "gemini-2.0-flash", "gpt-4o-mini", "claude-sonnet-4-6"
+llm_model: ""
+
+# Note: LLM_API_KEY is a secret — set it in .env, NOT here
+
+# ─── STRATEGY ARENA ───────────────────────────────────────────────────────
+
+# Which strategies to run in the arena (list)
+active_strategies: ["baseline"]
+
+# Per-strategy parameter overrides (optional)
+# strategy_overrides:
+#   sniper:
+#     timeout_hours: 4
+#     min_edge: 0.08
+#   conservative:
+#     kelly_fraction: 0.20
+#     max_open_positions: 3

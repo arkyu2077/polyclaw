@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from probability_engine import ProbEstimate
+from config import get_config
 
 FILTERED_LOG = Path(__file__).parent / "filtered_signals.json"
 _MAX_FILTERED_ENTRIES = 500  # Keep last 500
@@ -55,10 +56,7 @@ def estimate_fee(price: float, market_type: str = "default") -> float:
     return fee + spread_cost
 
 
-MIN_EDGE_THRESHOLD = 0.02  # 2% after spread — lower threshold since most markets are fee-free
-MAX_KELLY_FRACTION = 0.10
 DEFAULT_BANKROLL = 1000.0
-MIN_SHARES = 5
 
 
 @dataclass
@@ -94,7 +92,10 @@ def hours_to_expiry(end_date_str: str | None) -> float | None:
 
 
 def calculate_edge(estimate: ProbEstimate, bankroll: float = DEFAULT_BANKROLL,
-                   min_edge: float = MIN_EDGE_THRESHOLD) -> TradeSignal | None:
+                   min_edge: float | None = None) -> TradeSignal | None:
+    cfg = get_config()
+    if min_edge is None:
+        min_edge = cfg.min_edge_threshold
     ai_prob = estimate.ai_probability
     market_price = estimate.current_price
 
@@ -173,14 +174,14 @@ def calculate_edge(estimate: ProbEstimate, bankroll: float = DEFAULT_BANKROLL,
     p = ai_prob if direction == "BUY_YES" else (1 - ai_prob)
     q = 1 - p
     kelly = (b * p - q) / b if b > 0 else 0
-    kelly = max(0, min(kelly, MAX_KELLY_FRACTION))
+    kelly = max(0, min(kelly, cfg.max_kelly_fraction))
     kelly *= estimate.confidence
 
     position_size = round(bankroll * kelly, 2)
     expected_shares = max(0, int(position_size / entry_price)) if position_size > 0 else 0
     ev = round(edge * expected_shares * entry_price, 2)
 
-    if expected_shares < MIN_SHARES:
+    if expected_shares < cfg.min_shares:
         _log_filtered(estimate, "too_few_shares", {"expected_shares": expected_shares, "kelly": round(kelly, 4), "direction": direction})
         return None
 
@@ -214,7 +215,7 @@ def calculate_edge(estimate: ProbEstimate, bankroll: float = DEFAULT_BANKROLL,
 
 
 def find_edges(estimates: list[ProbEstimate], bankroll: float = DEFAULT_BANKROLL,
-               min_edge: float = MIN_EDGE_THRESHOLD) -> list[TradeSignal]:
+               min_edge: float | None = None) -> list[TradeSignal]:
     signals = []
     for est in estimates:
         sig = calculate_edge(est, bankroll, min_edge)

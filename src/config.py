@@ -51,6 +51,50 @@ class Config:
     max_exposure_pct: float = 1.0
     min_edge: float = 0.02
 
+    # Position sizing
+    max_position_pct: float = 0.15
+    cooldown_hours: float = 1.0
+    timeout_hours: float = 24.0
+    timeout_move_threshold: float = 0.02
+    kelly_fraction: float = 0.5
+    fee_rate: float = 0.003
+
+    # Exit strategy
+    tp_ratio: float = 0.70
+    high_conf_tp_ratio: float = 0.85
+    low_conf_tp_ratio: float = 0.55
+    sl_ratio: float = 0.75
+    wide_sl_ratio: float = 0.65
+    tight_sl_ratio: float = 0.82
+    trailing_stop_activation: float = 0.5
+    trailing_stop_distance: float = 0.30
+
+    # Live exit
+    live_timeout_hours: float = 6.0
+    stale_order_hours: float = 12.0
+    price_drift_threshold: float = 0.20
+
+    # Edge calculator
+    min_edge_threshold: float = 0.02
+    max_kelly_fraction: float = 0.10
+    min_shares: int = 5
+
+    # Signal dedup
+    signal_cooldown_hours: float = 4.0
+    max_alerts_per_hour: int = 5
+
+    # LLM
+    ai_estimate_discount: float = 0.5
+    llm_provider: str = "file"       # "file" (cron), "gemini", "openai", "anthropic"
+    llm_api_key: str = ""            # from env var LLM_API_KEY
+    llm_model: str = ""              # e.g. "gemini-2.0-flash", "gpt-4o-mini"
+
+    # Arena — which strategies to run
+    active_strategies: list[str] = field(default_factory=lambda: ["baseline"])
+
+    # Arena strategy overrides (YAML dict → StrategyConfig fields)
+    strategy_overrides: dict = field(default_factory=dict)
+
     # Notifications — loaded from env vars
     discord_webhook: str = ""
 
@@ -185,6 +229,23 @@ def load_config(config_path: Optional[Path] = None) -> Config:
     YAML_ALLOWED = {
         "strategy", "data_dir", "max_order_size", "daily_loss_limit",
         "max_positions", "max_exposure_pct", "min_edge", "bankroll",
+        # Position sizing
+        "max_position_pct", "cooldown_hours", "timeout_hours", "timeout_move_threshold",
+        "kelly_fraction", "fee_rate",
+        # Exit strategy
+        "tp_ratio", "high_conf_tp_ratio", "low_conf_tp_ratio",
+        "sl_ratio", "wide_sl_ratio", "tight_sl_ratio",
+        "trailing_stop_activation", "trailing_stop_distance",
+        # Live exit
+        "live_timeout_hours", "stale_order_hours", "price_drift_threshold",
+        # Edge calculator
+        "min_edge_threshold", "max_kelly_fraction", "min_shares",
+        # Signal dedup
+        "signal_cooldown_hours", "max_alerts_per_hour",
+        # LLM
+        "ai_estimate_discount", "llm_provider", "llm_model",
+        # Arena
+        "active_strategies", "strategy_overrides",
     }
     strategy_params = {k: v for k, v in yaml_data.items() if k in YAML_ALLOWED}
 
@@ -202,6 +263,7 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         discord_webhook=os.environ.get("DISCORD_WEBHOOK_URL", ""),
         twitter_rapidapi_keys=twitter_keys,
         rpc_url=os.environ.get("POLYGON_RPC_URL", "https://polygon-bor-rpc.publicnode.com"),
+        llm_api_key=os.environ.get("LLM_API_KEY", ""),
         bankroll=float(os.environ.get("INITIAL_BANKROLL", strategy_params.pop("bankroll", 1000.0))),
         data_dir=os.environ.get("DATA_DIR", strategy_params.pop("data_dir", "./data")),
         _config_dir=Path(config_path).parent if config_path else Path.cwd(),

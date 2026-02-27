@@ -352,20 +352,21 @@ def compute_estimates(signals, markets_by_id: dict) -> list[ProbEstimate]:
     return estimates
 
 
-AI_ESTIMATE_DISCOUNT = 0.5  # AI predictions get halved — trust only 50% of predicted move
+from config import get_config
 
 
 def discount_ai_probability(ai_prob: float, market_price: float) -> float:
     """
     Discount AI probability estimate toward market price.
-    
+
     AI says 80%, market says 50% → discounted = 50% + (80%-50%) * 0.5 = 65%
-    
+
     Rationale: the market aggregates thousands of participants' info.
     AI analysis adds value but shouldn't override the market entirely.
     """
+    cfg = get_config()
     move = ai_prob - market_price
-    discounted = market_price + move * AI_ESTIMATE_DISCOUNT
+    discounted = market_price + move * cfg.ai_estimate_discount
     return max(0.02, min(0.98, round(discounted, 4)))
 
 

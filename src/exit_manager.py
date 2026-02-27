@@ -58,11 +58,12 @@ def check_live_exits() -> int:
                 closed += 1
             continue
 
-        # Check timeout (6h for sniper)
+        # Check timeout
         if pos.get("entry_time"):
+            cfg = get_config()
             entry_dt = datetime.fromisoformat(pos["entry_time"])
             hours = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
-            if hours > 6:
+            if hours > cfg.live_timeout_hours:
                 result = close_live_position(pos, "TIMEOUT")
                 if result:
                     closed += 1
@@ -72,8 +73,9 @@ def check_live_exits() -> int:
 
 
 def cleanup_stale_orders() -> int:
-    """Cancel stale orders: >12h old, market expiring <1h, or price drifted >20%.
+    """Cancel stale orders: >N hours old, market expiring <1h, or price drifted >threshold.
     Returns count of cancelled orders."""
+    cfg = get_config()
     client = _get_client()
     orders = client.get_orders()
     if not orders:
@@ -97,10 +99,10 @@ def cleanup_stale_orders() -> int:
 
         reason = None
 
-        # 1. Timeout: >12h since creation
+        # 1. Timeout: >N hours since creation
         if created > 0:
             age_hours = (now.timestamp() - created) / 3600
-            if age_hours > 12:
+            if age_hours > cfg.stale_order_hours:
                 reason = f"超时({age_hours:.0f}h)"
 
         # 2. Market expiring soon or price drifted
@@ -125,7 +127,7 @@ def cleanup_stale_orders() -> int:
                             current = float(t.get("price", 0))
                             if current > 0 and price > 0:
                                 drift = abs(current - price) / price
-                                if drift > 0.20:
+                                if drift > cfg.price_drift_threshold:
                                     reason = f"价格偏离({drift:.0%})"
                             break
             except Exception:

@@ -1,10 +1,13 @@
-"""LLM-powered news analysis using Claude via OpenClaw sessions_spawn."""
+"""LLM-powered news analysis — file-based IPC or direct API call."""
 
 import json
+import os
 import re
 import time
 from pathlib import Path
 from dataclasses import dataclass
+
+from config import get_config
 
 
 @dataclass
@@ -25,14 +28,24 @@ LLM_REQUEST = DATA_DIR / "llm_request.json"
 LLM_RESPONSE = DATA_DIR / "llm_response.json"
 
 
-def build_prompt(news_items: list[dict], markets: list[dict]) -> str:
+def build_prompt(news_items: list[dict], markets: list[dict],
+                 matched_market_ids: set[str] | None = None) -> str:
     news_section = "\n".join(
         f"  [{i}] {item.get('title', 'N/A')} (source: {item.get('source', 'unknown')})"
         for i, item in enumerate(news_items[:15])
     )
+
+    # Prioritize markets with keyword matches, cap at 12
+    if matched_market_ids:
+        priority = [m for m in markets if m.get("id") in matched_market_ids]
+        other = [m for m in markets if m.get("id") not in matched_market_ids]
+        ordered = (priority + other)[:12]
+    else:
+        ordered = markets[:12]
+
     market_section = "\n".join(
         f"  [{i}] {m.get('question', 'N/A')} | YES: {_yes_price(m)} | vol: ${m.get('volume', 0):,.0f}"
-        for i, m in enumerate(markets[:20])
+        for i, m in enumerate(ordered)
     )
     return f"""You are an expert Polymarket trading analyst. Analyze how breaking news affects prediction market prices.
 
@@ -50,7 +63,7 @@ Rules:
 - Skip news that doesn't clearly affect any listed market
 - Consider: does this news make the event MORE or LESS likely?
 
-Write the result as JSON to {LLM_RESPONSE}:
+Output JSON:
 {{"signals": [{{"news_index": 0, "market_index": 5, "direction": "YES_UP", "estimated_probability": 0.75, "confidence": 0.8, "reasoning": "..."}}]}}
 If no signals: {{"signals": []}}"""
 
@@ -62,20 +75,31 @@ def _yes_price(market: dict) -> str:
     return "N/A"
 
 
-def analyze_news_batch(news_items: list[dict], markets: list[dict]) -> list[LLMSignal]:
-    """Read Claude's analysis from llm_response.json (written by OpenClaw cron job every 5 min)."""
+def analyze_news_batch(news_items: list[dict], markets: list[dict],
+                       matched_market_ids: set[str] | None = None) -> list[LLMSignal]:
+    """Analyze news via LLM — file-based IPC (cron) or direct API call."""
+    cfg = get_config()
     if not news_items or not markets:
         return []
 
-    # Check if Claude has written a recent analysis
+    if cfg.llm_provider == "file":
+        return _read_from_file(news_items, markets)
+    elif cfg.llm_provider in ("gemini", "openai", "anthropic"):
+        return _call_api(news_items, markets, matched_market_ids, cfg)
+
+    print(f"[LLM] Unknown provider: {cfg.llm_provider}")
+    return []
+
+
+def _read_from_file(news_items: list[dict], markets: list[dict]) -> list[LLMSignal]:
+    """Read analysis from llm_response.json (written by cron job)."""
     if not LLM_RESPONSE.exists():
-        print("[LLM] No Claude analysis yet (waiting for cron job)")
+        print("[LLM] No analysis yet (waiting for cron job)")
         return []
 
-    # Check freshness (ignore if older than 10 minutes)
     age = time.time() - LLM_RESPONSE.stat().st_mtime
     if age > 600:
-        print(f"[LLM] Claude analysis is stale ({age/60:.0f}min old)")
+        print(f"[LLM] Analysis is stale ({age/60:.0f}min old)")
         return []
 
     try:
@@ -83,13 +107,80 @@ def analyze_news_batch(news_items: list[dict], markets: list[dict]) -> list[LLMS
         data = _extract_json(response_text)
         if data and "signals" in data:
             signals = _parse_signals(data, news_items, markets)
-            print(f"[LLM] Claude analysis: {len(signals)} signals ({age:.0f}s ago)")
+            print(f"[LLM] File analysis: {len(signals)} signals ({age:.0f}s ago)")
             return signals
         else:
-            print("[LLM] Claude response not parseable")
+            print("[LLM] Response not parseable")
             return []
     except Exception as e:
-        print(f"[LLM] Error reading Claude analysis: {e}")
+        print(f"[LLM] Error reading analysis: {e}")
+        return []
+
+
+def _call_api(news_items: list[dict], markets: list[dict],
+              matched_market_ids: set[str] | None, cfg) -> list[LLMSignal]:
+    """Call LLM API directly (Gemini, OpenAI, or Anthropic)."""
+    import httpx
+
+    prompt = build_prompt(news_items, markets, matched_market_ids)
+    api_key = cfg.llm_api_key
+    if not api_key:
+        print("[LLM] No LLM_API_KEY set — skipping API call")
+        return []
+
+    model = cfg.llm_model
+    try:
+        if cfg.llm_provider == "gemini":
+            model = model or "gemini-2.0-flash"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            resp = httpx.post(url, json=payload, timeout=60)
+            resp.raise_for_status()
+            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+        elif cfg.llm_provider == "openai":
+            model = model or "gpt-4o-mini"
+            url = "https://api.openai.com/v1/chat/completions"
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+            }
+            resp = httpx.post(url, json=payload, timeout=60,
+                              headers={"Authorization": f"Bearer {api_key}"})
+            resp.raise_for_status()
+            text = resp.json()["choices"][0]["message"]["content"]
+
+        elif cfg.llm_provider == "anthropic":
+            model = model or "claude-sonnet-4-6"
+            url = "https://api.anthropic.com/v1/messages"
+            payload = {
+                "model": model,
+                "max_tokens": 2048,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            resp = httpx.post(url, json=payload, timeout=60, headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            })
+            resp.raise_for_status()
+            text = resp.json()["content"][0]["text"]
+        else:
+            return []
+
+        data = _extract_json(text)
+        if data and "signals" in data:
+            signals = _parse_signals(data, news_items, markets)
+            print(f"[LLM] {cfg.llm_provider}/{model}: {len(signals)} signals")
+            # Cache response for dedup within same cycle
+            LLM_RESPONSE.write_text(text)
+            return signals
+        else:
+            print(f"[LLM] {cfg.llm_provider} response not parseable")
+            return []
+
+    except Exception as e:
+        print(f"[LLM] API call failed ({cfg.llm_provider}): {e}")
         return []
 
 

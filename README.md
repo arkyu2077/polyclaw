@@ -1,5 +1,7 @@
 # Polyclaw
 
+**[polyclaw.cloud](https://polyclaw.cloud/)**
+
 AI-powered news edge scanner and auto-trader for [Polymarket](https://polymarket.com) prediction markets. Ingests news from 10+ sources in real-time, matches headlines to active markets, estimates probability shifts, calculates fee-adjusted edges using Kelly criterion, and auto-trades via Polymarket's CLOB API on Polygon.
 
 ## Table of Contents

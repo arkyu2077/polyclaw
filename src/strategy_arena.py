@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
+from config import get_config
 from db import get_positions, upsert_position, insert_trade, get_trades
 
 console = Console()
@@ -345,10 +346,18 @@ def run_arena(estimates, bankroll: float = 1000.0, live_trading: bool = False):
     so aggressive strategies may open positions that conservative ones skip.
     If live_trading=True, sniper signals also place real CLOB orders.
     """
-    ACTIVE_STRATEGIES = {"baseline"}
+    cfg = get_config()
+    active = set(cfg.active_strategies)
+
+    # Apply strategy parameter overrides from config.yaml
+    for name, overrides in cfg.strategy_overrides.items():
+        if name in STRATEGIES and isinstance(overrides, dict):
+            for key, value in overrides.items():
+                if hasattr(STRATEGIES[name], key):
+                    setattr(STRATEGIES[name], key, value)
 
     for name, config in STRATEGIES.items():
-        if name not in ACTIVE_STRATEGIES:
+        if name not in active:
             continue
         runner = StrategyRunner(config, bankroll)
 
@@ -401,7 +410,7 @@ def run_arena(estimates, bankroll: float = 1000.0, live_trading: bool = False):
                         token_id = clob_ids[0] if direction == "BUY_YES" else clob_ids[1]
                         real_balance = get_balance()
                         scale = real_balance / bankroll
-                        real_cost = min(paper_pos["cost"] * scale, 20.0)
+                        real_cost = min(paper_pos["cost"] * scale, cfg.max_order_size)
                         if real_cost >= 1.0 and real_balance < real_cost:
                             real_balance = release_funds_for_signal(real_cost)
                         if real_cost >= 1.0:

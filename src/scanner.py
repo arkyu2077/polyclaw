@@ -26,15 +26,13 @@ from edge_calculator import find_edges, TradeSignal
 from position_manager import open_position, check_exits, display_positions, _fetch_market_price
 from price_monitor import record_and_detect
 from strategy_arena import run_arena, check_arena_exits
+from config import get_config
 from db import (
     insert_signal, get_cooldown, set_cooldown, prune_cooldowns,
     get_all_cooldowns,
 )
 
 console = Console()
-
-SIGNAL_COOLDOWN_HOURS = 4  # Don't re-alert same market+direction within this window
-MAX_ALERTS_PER_HOUR = 5     # Discord rate limit
 
 
 def _log_dedup(sig, age_hours: float):
@@ -61,6 +59,7 @@ def _log_dedup(sig, age_hours: float):
 
 def dedup_signals(signals: list) -> list:
     """Filter out signals that were already alerted within cooldown window."""
+    cfg = get_config()
     now = datetime.now(timezone.utc)
     fresh = []
 
@@ -71,7 +70,7 @@ def dedup_signals(signals: list) -> list:
             try:
                 last_dt = datetime.fromisoformat(last_alert)
                 age_hours = (now - last_dt).total_seconds() / 3600
-                if age_hours < SIGNAL_COOLDOWN_HOURS:
+                if age_hours < cfg.signal_cooldown_hours:
                     _log_dedup(sig, age_hours)
                     continue  # Still in cooldown
             except Exception:
@@ -84,8 +83,8 @@ def dedup_signals(signals: list) -> list:
     prune_cooldowns(cutoff)
 
     # Rate limit: max N per hour
-    if len(fresh) > MAX_ALERTS_PER_HOUR:
-        fresh = sorted(fresh, key=lambda s: abs(s.edge), reverse=True)[:MAX_ALERTS_PER_HOUR]
+    if len(fresh) > cfg.max_alerts_per_hour:
+        fresh = sorted(fresh, key=lambda s: abs(s.edge), reverse=True)[:cfg.max_alerts_per_hour]
 
     return fresh
 
@@ -190,15 +189,23 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
     # 4b. LLM analysis
     llm_signals = []
     if use_llm or llm_only:
-        console.print("[bold magenta]🤖 Running Gemini LLM analysis...[/bold magenta]")
-        llm_signals = parse_with_llm(all_news, markets)
-        console.print(f"  {len(llm_signals)} LLM signals found")
-        if llm_signals:
-            for s in llm_signals[:5]:
-                console.print(f"    [magenta]→[/magenta] {s['news_title'][:50]} ⟶ {s['question'][:40]} ({s['direction']}, p={s['estimated_probability']:.0%})")
-                if s.get('reasoning'):
-                    console.print(f"      [dim]{s['reasoning'][:80]}[/dim]")
-            estimates = merge_llm_estimates(estimates, llm_signals)
+        # Smart gate: skip LLM if no keyword signals and no breaking news
+        has_breaking = any(
+            item.get("importance", 0) >= 4 or item.get("source") in ("Reuters", "AP", "Bloomberg")
+            for item in all_news[:15]
+        )
+        if not signals and not has_breaking and not llm_only:
+            console.print("  [dim]🤖 LLM skipped (no keyword matches, no breaking news)[/dim]")
+        else:
+            console.print("[bold magenta]🤖 Running LLM analysis...[/bold magenta]")
+            llm_signals = parse_with_llm(all_news, markets)
+            console.print(f"  {len(llm_signals)} LLM signals found")
+            if llm_signals:
+                for s in llm_signals[:5]:
+                    console.print(f"    [magenta]→[/magenta] {s['news_title'][:50]} ⟶ {s['question'][:40]} ({s['direction']}, p={s['estimated_probability']:.0%})")
+                    if s.get('reasoning'):
+                        console.print(f"      [dim]{s['reasoning'][:80]}[/dim]")
+                estimates = merge_llm_estimates(estimates, llm_signals)
 
     # 5. Find edges (with fee adjustment)
     console.print("[bold cyan]⚡ Scanning for edges (fee-adjusted)...[/bold cyan]")
@@ -210,7 +217,8 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
     # Dedup: filter out signals already alerted in cooldown window
     fresh_signals = dedup_signals(trade_signals)
     if len(trade_signals) != len(fresh_signals):
-        console.print(f"  [dim]Dedup: {len(trade_signals)} signals → {len(fresh_signals)} fresh (cooldown={SIGNAL_COOLDOWN_HOURS}h)[/dim]")
+        cfg = get_config()
+        console.print(f"  [dim]Dedup: {len(trade_signals)} signals → {len(fresh_signals)} fresh (cooldown={cfg.signal_cooldown_hours}h)[/dim]")
 
     save_signals(fresh_signals)
 

@@ -11,29 +11,10 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
+from config import get_config
 from db import get_positions, upsert_position, insert_trade, get_trades
 
 console = Console()
-
-# Risk parameters
-MAX_OPEN_POSITIONS = 8
-MAX_POSITION_PCT = 0.15
-MAX_TOTAL_EXPOSURE_PCT = 1.00
-COOLDOWN_HOURS = 1
-TIMEOUT_HOURS = 24
-TIMEOUT_MOVE_THRESHOLD = 0.02
-
-# Exit strategy parameters
-BASE_TP_RATIO = 0.70
-HIGH_CONF_TP_RATIO = 0.85
-LOW_CONF_TP_RATIO = 0.55
-BASE_SL_RATIO = 0.75
-WIDE_SL_RATIO = 0.65
-TIGHT_SL_RATIO = 0.82
-TRAILING_STOP_ACTIVATION = 0.5
-TRAILING_STOP_DISTANCE = 0.30
-FEE_RATE = 0.003
-KELLY_FRACTION = 0.5
 
 def kelly_size(ai_probability: float, entry_price: float, confidence: float, bankroll: float) -> float:
     """
@@ -46,13 +27,14 @@ def kelly_size(ai_probability: float, entry_price: float, confidence: float, ban
     markets. Now we blend AI estimate toward ENTRY PRICE (market consensus),
     not toward 50%.
     """
+    cfg = get_config()
     blend_factor = max(0.5, min(1.0, confidence))
     p = entry_price + (ai_probability - entry_price) * blend_factor
 
     p = max(0.01, min(0.99, p))
     q = 1 - p
 
-    net_profit_per_share = (1 - entry_price) * (1 - FEE_RATE)
+    net_profit_per_share = (1 - entry_price) * (1 - cfg.fee_rate)
     if entry_price <= 0.001 or net_profit_per_share <= 0:
         return 0
     b = net_profit_per_share / entry_price
@@ -61,8 +43,8 @@ def kelly_size(ai_probability: float, entry_price: float, confidence: float, ban
     if f_star <= 0:
         return 0
 
-    f_half = f_star * KELLY_FRACTION
-    f_capped = min(f_half, MAX_POSITION_PCT)
+    f_half = f_star * cfg.kelly_fraction
+    f_capped = min(f_half, cfg.max_position_pct)
 
     return round(bankroll * f_capped, 2)
 
@@ -194,12 +176,13 @@ def open_position(
     confidence: float = 0.7,
 ) -> Position | None:
     """Open a new paper position using Half-Kelly sizing. Returns Position or None."""
+    cfg = get_config()
     positions = _load_positions()
     open_positions = [p for p in positions if p.status == "open"]
     now = datetime.now(timezone.utc)
 
-    if len(open_positions) >= MAX_OPEN_POSITIONS:
-        console.print(f"[yellow]  ⚠ Max positions ({MAX_OPEN_POSITIONS}) reached, skipping[/yellow]")
+    if len(open_positions) >= cfg.max_positions:
+        console.print(f"[yellow]  ⚠ Max positions ({cfg.max_positions}) reached, skipping[/yellow]")
         return None
 
     if any(p.market_id == market_id for p in open_positions):
@@ -212,7 +195,7 @@ def open_position(
         if ct.get("market_id") == market_id and ct.get("exit_time"):
             try:
                 exit_dt = datetime.fromisoformat(ct["exit_time"])
-                if now - exit_dt < timedelta(hours=COOLDOWN_HOURS):
+                if now - exit_dt < timedelta(hours=cfg.cooldown_hours):
                     console.print(f"[yellow]  ⚠ Cooldown active for this market (exited {ct['exit_time']})[/yellow]")
                     return None
             except (ValueError, TypeError):
@@ -224,7 +207,7 @@ def open_position(
         return None
 
     total_invested = sum(p.cost for p in open_positions)
-    max_remaining = bankroll * MAX_TOTAL_EXPOSURE_PCT - total_invested
+    max_remaining = bankroll * cfg.max_exposure_pct - total_invested
     allowed_cost = min(kelly_cost, max(0, max_remaining))
 
     if allowed_cost < 1.0:
@@ -241,21 +224,21 @@ def open_position(
     console.print(f"[dim]  📐 Kelly: p={adj_p:.1%} c={entry_price:.1%} → half-kelly=${kelly_cost:.0f}, actual=${cost:.0f}[/dim]")
 
     if confidence >= 0.75:
-        tp_ratio = HIGH_CONF_TP_RATIO
+        tp_ratio = cfg.high_conf_tp_ratio
     elif confidence <= 0.55:
-        tp_ratio = LOW_CONF_TP_RATIO
+        tp_ratio = cfg.low_conf_tp_ratio
     else:
-        tp_ratio = BASE_TP_RATIO
+        tp_ratio = cfg.tp_ratio
 
     target_price = round(entry_price + (ai_probability - entry_price) * tp_ratio, 4)
 
     kelly_pct = cost / bankroll
     if kelly_pct <= 0.03:
-        sl_ratio = WIDE_SL_RATIO
+        sl_ratio = cfg.wide_sl_ratio
     elif kelly_pct >= 0.10:
-        sl_ratio = TIGHT_SL_RATIO
+        sl_ratio = cfg.tight_sl_ratio
     else:
-        sl_ratio = BASE_SL_RATIO
+        sl_ratio = cfg.sl_ratio
 
     stop_loss = round(entry_price * sl_ratio, 4)
 
@@ -358,11 +341,12 @@ def check_exits() -> int:
             continue
 
         # 3. Trailing stop
+        cfg = get_config()
         target_move = pos.target_price - pos.entry_price
         if target_move > 0:
             progress = (peak - pos.entry_price) / target_move
-            if progress >= TRAILING_STOP_ACTIVATION:
-                trail_stop = peak * (1 - TRAILING_STOP_DISTANCE)
+            if progress >= cfg.trailing_stop_activation:
+                trail_stop = peak * (1 - cfg.trailing_stop_distance)
                 effective_trail = max(trail_stop, pos.stop_loss)
                 if current <= effective_trail:
                     profit_locked = (current - pos.entry_price) * pos.shares
@@ -382,9 +366,9 @@ def check_exits() -> int:
                 continue
 
         # 5. Timeout
-        if age_hours > TIMEOUT_HOURS:
+        if age_hours > cfg.timeout_hours:
             move = abs(current - pos.entry_price)
-            if move < TIMEOUT_MOVE_THRESHOLD:
+            if move < cfg.timeout_move_threshold:
                 _close_position(pos, current, "TIMEOUT_FLAT")
                 closed_count += 1
                 continue
@@ -401,6 +385,7 @@ def check_exits() -> int:
 
 def get_summary(bankroll: float = 1000.0) -> dict:
     """Get portfolio summary stats."""
+    cfg = get_config()
     positions = _load_positions()
     open_pos = [p for p in positions if p.status == "open"]
     closed_trades = get_trades(mode="paper")
@@ -412,7 +397,7 @@ def get_summary(bankroll: float = 1000.0) -> dict:
 
     return {
         "open_count": len(open_pos),
-        "max_positions": MAX_OPEN_POSITIONS,
+        "max_positions": cfg.max_positions,
         "total_invested": total_invested,
         "exposure_pct": total_invested / bankroll if bankroll > 0 else 0,
         "closed_count": len(closed_trades),
