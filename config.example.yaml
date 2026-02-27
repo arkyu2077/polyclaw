@@ -1,0 +1,31 @@
+# Polymarket News Edge — Strategy Configuration
+# Copy this to config.yaml to override default strategy parameters.
+# Secrets (private key, API keys, webhooks) belong in .env — NOT here.
+
+# ─── STRATEGY ───────────────────────────────────────────────────────────────
+
+# Active strategy: sniper | baseline | conservative | aggressive | trend_follower
+strategy: "sniper"
+
+# Starting capital for position sizing (paper + live)
+bankroll: 1000.0
+
+# Data directory for positions, cache, history (default: ./data)
+data_dir: "./data"
+
+# ─── SAFETY LIMITS ──────────────────────────────────────────────────────────
+
+# Maximum size per order in USD
+max_order_size: 15.0
+
+# Stop trading if daily realized loss exceeds this
+daily_loss_limit: 30.0
+
+# Maximum concurrent open positions
+max_positions: 4
+
+# Maximum total exposure as fraction of bankroll
+max_exposure_pct: 1.0
+
+# Minimum edge after fees to open position (0.02 = 2%)
+min_edge: 0.02

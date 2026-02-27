@@ -1,0 +1,5 @@
+feedparser
+httpx
+rich
+pandas
+rapidfuzz
