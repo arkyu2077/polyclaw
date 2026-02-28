@@ -37,5 +37,5 @@ Homepage = "https://github.com/arkyu2077/polyclaw"
 Repository = "https://github.com/arkyu2077/polyclaw"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["."]
 testpaths = ["tests"]

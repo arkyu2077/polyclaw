@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 
 def test_kelly_uses_config_fee_rate(mock_config):
     """Higher fee_rate should reduce net profit and therefore reduce kelly_size."""
-    from position_manager import kelly_size
+    from src.position_manager import kelly_size
 
     mock_config.fee_rate = 0.01
     mock_config.kelly_fraction = 0.5
@@ -38,7 +38,7 @@ def test_kelly_uses_config_fee_rate(mock_config):
 
 def test_kelly_uses_config_kelly_fraction(mock_config):
     """Smaller kelly_fraction should produce smaller position size."""
-    from position_manager import kelly_size
+    from src.position_manager import kelly_size
 
     mock_config.fee_rate = 0.003
     mock_config.max_position_pct = 0.99
@@ -64,7 +64,7 @@ def test_kelly_uses_config_kelly_fraction(mock_config):
 
 def test_kelly_uses_config_max_position_pct(mock_config):
     """max_position_pct cap should limit the position size."""
-    from position_manager import kelly_size
+    from src.position_manager import kelly_size
 
     mock_config.fee_rate = 0.003
     mock_config.kelly_fraction = 0.5
@@ -83,7 +83,7 @@ def test_kelly_uses_config_max_position_pct(mock_config):
 
 def test_kelly_returns_zero_when_no_edge(mock_config):
     """When ai_probability == entry_price there is no edge; kelly_size should be 0."""
-    from position_manager import kelly_size
+    from src.position_manager import kelly_size
 
     mock_config.fee_rate = 0.003
     mock_config.kelly_fraction = 0.5
@@ -141,11 +141,11 @@ def test_open_respects_config_max_positions(mock_config, monkeypatch):
 
     two_positions = [_make_open_position_dict("mkt-A"), _make_open_position_dict("mkt-B")]
 
-    monkeypatch.setattr("position_manager.get_positions", lambda mode: two_positions)
-    monkeypatch.setattr("position_manager.get_trades", lambda mode: [])
-    monkeypatch.setattr("position_manager.upsert_position", lambda d: None)
+    monkeypatch.setattr("src.position_manager.get_positions", lambda mode: two_positions)
+    monkeypatch.setattr("src.position_manager.get_trades", lambda mode: [])
+    monkeypatch.setattr("src.position_manager.upsert_position", lambda d: None)
 
-    from position_manager import open_position
+    from src.position_manager import open_position
 
     result = open_position(
         market_id="mkt-NEW",
@@ -172,11 +172,11 @@ def test_open_respects_config_cooldown(mock_config, monkeypatch):
         "exit_time": closed_1h_ago,
     }
 
-    monkeypatch.setattr("position_manager.get_positions", lambda mode: [])
-    monkeypatch.setattr("position_manager.get_trades", lambda mode: [closed_trade])
-    monkeypatch.setattr("position_manager.upsert_position", lambda d: None)
+    monkeypatch.setattr("src.position_manager.get_positions", lambda mode: [])
+    monkeypatch.setattr("src.position_manager.get_trades", lambda mode: [closed_trade])
+    monkeypatch.setattr("src.position_manager.upsert_position", lambda d: None)
 
-    from position_manager import open_position
+    from src.position_manager import open_position
 
     result = open_position(
         market_id="mkt-COOL",
@@ -205,11 +205,11 @@ def test_open_uses_config_tp_ratios(mock_config, monkeypatch):
     mock_config.fee_rate = 0.003
     mock_config.max_position_pct = 0.99
 
-    monkeypatch.setattr("position_manager.get_positions", lambda mode: [])
-    monkeypatch.setattr("position_manager.get_trades", lambda mode: [])
-    monkeypatch.setattr("position_manager.upsert_position", lambda d: None)
+    monkeypatch.setattr("src.position_manager.get_positions", lambda mode: [])
+    monkeypatch.setattr("src.position_manager.get_trades", lambda mode: [])
+    monkeypatch.setattr("src.position_manager.upsert_position", lambda d: None)
 
-    from position_manager import open_position
+    from src.position_manager import open_position
 
     # confidence=0.80 >= 0.75 → uses high_conf_tp_ratio=0.90
     pos = open_position(
@@ -243,11 +243,11 @@ def test_open_uses_config_sl_ratios(mock_config, monkeypatch):
     mock_config.fee_rate = 0.003
     mock_config.max_position_pct = 0.99
 
-    monkeypatch.setattr("position_manager.get_positions", lambda mode: [])
-    monkeypatch.setattr("position_manager.get_trades", lambda mode: [])
-    monkeypatch.setattr("position_manager.upsert_position", lambda d: None)
+    monkeypatch.setattr("src.position_manager.get_positions", lambda mode: [])
+    monkeypatch.setattr("src.position_manager.get_trades", lambda mode: [])
+    monkeypatch.setattr("src.position_manager.upsert_position", lambda d: None)
 
-    from position_manager import open_position
+    from src.position_manager import open_position
 
     # confidence=0.65, entry_price=0.40, ai_probability=0.75, bankroll=1000
     # kelly_size produces a large cost (>= 10% of 1000=$100) → tight_sl_ratio used
@@ -287,7 +287,7 @@ def _make_position_obj(
     hours_old=0,
 ):
     """Build a Position dataclass instance for exit tests."""
-    from position_manager import Position
+    from src.position_manager import Position
 
     entry_time = (datetime.now(timezone.utc) - timedelta(hours=hours_old)).isoformat()
     return Position(
@@ -331,12 +331,12 @@ def test_exit_trailing_stop_uses_config(mock_config, monkeypatch):
         p.exit_reason = reason
         closed_positions.append((p, exit_price, reason))
 
-    monkeypatch.setattr("position_manager.get_positions", lambda mode: [pos.to_db_dict()])
-    monkeypatch.setattr("position_manager._fetch_market_price", lambda mid: current_price)
-    monkeypatch.setattr("position_manager.upsert_position", lambda d: None)
-    monkeypatch.setattr("position_manager._close_position", fake_close)
+    monkeypatch.setattr("src.position_manager.get_positions", lambda mode: [pos.to_db_dict()])
+    monkeypatch.setattr("src.position_manager._fetch_market_price", lambda mid: current_price)
+    monkeypatch.setattr("src.position_manager.upsert_position", lambda d: None)
+    monkeypatch.setattr("src.position_manager._close_position", fake_close)
 
-    from position_manager import check_exits
+    from src.position_manager import check_exits
 
     count = check_exits()
     assert count == 1
@@ -368,12 +368,12 @@ def test_exit_timeout_uses_config(mock_config, monkeypatch):
         p.status = "closed"
         closed_positions.append((p, exit_price, reason))
 
-    monkeypatch.setattr("position_manager.get_positions", lambda mode: [pos.to_db_dict()])
-    monkeypatch.setattr("position_manager._fetch_market_price", lambda mid: current_price)
-    monkeypatch.setattr("position_manager.upsert_position", lambda d: None)
-    monkeypatch.setattr("position_manager._close_position", fake_close)
+    monkeypatch.setattr("src.position_manager.get_positions", lambda mode: [pos.to_db_dict()])
+    monkeypatch.setattr("src.position_manager._fetch_market_price", lambda mid: current_price)
+    monkeypatch.setattr("src.position_manager.upsert_position", lambda d: None)
+    monkeypatch.setattr("src.position_manager._close_position", fake_close)
 
-    from position_manager import check_exits
+    from src.position_manager import check_exits
 
     count = check_exits()
     assert count == 1

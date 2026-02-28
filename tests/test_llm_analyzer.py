@@ -50,7 +50,7 @@ class TestBuildPrompt:
 
     def test_build_prompt_caps_at_12_markets(self):
         """Only 12 markets appear in the prompt even when 20 are passed."""
-        from llm_analyzer import build_prompt
+        from src.llm_analyzer import build_prompt
         news = _make_news(3)
         markets = _make_markets(20)
         prompt = build_prompt(news, markets)
@@ -60,7 +60,7 @@ class TestBuildPrompt:
 
     def test_build_prompt_prioritizes_matched_ids(self):
         """Matched market IDs appear first in the prompt."""
-        from llm_analyzer import build_prompt
+        from src.llm_analyzer import build_prompt
         # 10 markets, last 3 are "priority"
         all_ids = [f"mkt_{i}" for i in range(10)]
         priority_ids = {"mkt_7", "mkt_8", "mkt_9"}
@@ -106,7 +106,7 @@ class TestAnalyzeRouting:
         mock_resp.raise_for_status = MagicMock()
 
         with patch("httpx.post", return_value=mock_resp) as mock_post:
-            from llm_analyzer import analyze_news_batch
+            from src.llm_analyzer import analyze_news_batch
             analyze_news_batch(_make_news(2), _make_markets(2))
 
         called_url = mock_post.call_args[0][0]
@@ -127,7 +127,7 @@ class TestAnalyzeRouting:
         mock_resp.raise_for_status = MagicMock()
 
         with patch("httpx.post", return_value=mock_resp) as mock_post:
-            from llm_analyzer import analyze_news_batch
+            from src.llm_analyzer import analyze_news_batch
             analyze_news_batch(_make_news(2), _make_markets(2))
 
         called_url = mock_post.call_args[0][0]
@@ -147,7 +147,7 @@ class TestAnalyzeRouting:
         mock_resp.raise_for_status = MagicMock()
 
         with patch("httpx.post", return_value=mock_resp) as mock_post:
-            from llm_analyzer import analyze_news_batch
+            from src.llm_analyzer import analyze_news_batch
             analyze_news_batch(_make_news(2), _make_markets(2))
 
         called_url = mock_post.call_args[0][0]
@@ -167,7 +167,7 @@ class TestAnalyzeRouting:
         mock_resp.raise_for_status = MagicMock()
 
         with patch("httpx.post", return_value=mock_resp) as mock_post:
-            from llm_analyzer import analyze_news_batch
+            from src.llm_analyzer import analyze_news_batch
             analyze_news_batch(_make_news(2), _make_markets(2))
 
         called_url = mock_post.call_args[0][0]
@@ -180,7 +180,7 @@ class TestAnalyzeRouting:
         mock_config.llm_model = ""
 
         with patch("httpx.post") as mock_post:
-            from llm_analyzer import analyze_news_batch
+            from src.llm_analyzer import analyze_news_batch
             result = analyze_news_batch(_make_news(2), _make_markets(2))
 
         assert result == []

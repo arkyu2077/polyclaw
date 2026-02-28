@@ -1,17 +1,12 @@
 """Tests for strategy_arena.py — config-driven active strategies and overrides."""
 
 import sys
-import types
 import pytest
 from unittest.mock import MagicMock, patch
 from dataclasses import dataclass, field
 
-# Ensure the real strategy_arena module is loaded (not a stub from another test file)
-# Remove any stub that may have been injected by test_exit_manager or test_scanner
-sys.modules.pop("strategy_arena", None)
-
-import strategy_arena  # noqa: E402
-from strategy_arena import run_arena, STRATEGIES
+import src.strategy_arena as strategy_arena
+from src.strategy_arena import run_arena, STRATEGIES
 
 
 # ---------------------------------------------------------------------------

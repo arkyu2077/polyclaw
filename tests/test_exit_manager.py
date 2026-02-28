@@ -6,43 +6,7 @@ import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch
 
-
-# ---------------------------------------------------------------------------
-# Pre-stub modules with broken/missing imports BEFORE importing exit_manager
-# ---------------------------------------------------------------------------
-
-def _stub(name, **attrs):
-    """Stub a module only if it can't be imported normally."""
-    if name in sys.modules:
-        return sys.modules[name]
-    try:
-        __import__(name)
-        return sys.modules[name]
-    except Exception:
-        mod = types.ModuleType(name)
-        for k, v in attrs.items():
-            setattr(mod, k, v)
-        sys.modules[name] = mod
-        return mod
-
-# scanner.py imports these at module level — stub them so exit_manager can load
-_stub("news_ingestion", ingest=lambda: [])
-_stub("market_cache", get_markets=lambda: [])
-_stub("event_parser", parse_all=lambda *a, **kw: [], parse_with_llm=lambda *a, **kw: [])
-_stub("probability_engine", compute_estimates=lambda *a, **kw: [], merge_llm_estimates=lambda *a, **kw: [])
-_stub("edge_calculator", find_edges=lambda *a, **kw: [], TradeSignal=object)
-_stub("position_manager", open_position=lambda *a, **kw: None,
-      check_exits=lambda: 0, display_positions=lambda *a: None,
-      _fetch_market_price=lambda *a: None)
-_stub("price_monitor", record_and_detect=lambda *a: [])
-_stub("strategy_arena", run_arena=lambda *a, **kw: None, check_arena_exits=lambda *a: 0)
-
-# exit_manager imports these
-_stub("order_executor", _get_client=MagicMock())
-_stub("position_tracker", close_live_position=MagicMock(), check_pending_orders=MagicMock())
-
-# Now import exit_manager so it's cached in sys.modules
-import exit_manager  # noqa: E402
+import src.exit_manager as exit_manager
 
 
 # ---------------------------------------------------------------------------

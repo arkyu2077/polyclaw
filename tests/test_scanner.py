@@ -1,41 +1,11 @@
 """Tests for scanner.py — dedup_signals config-driven cooldown + LLM smart gate."""
 
-import sys
-import types
 import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch
 from dataclasses import dataclass
 
-
-# Pre-stub modules with broken/missing imports BEFORE importing scanner
-def _stub(name, **attrs):
-    """Stub a module only if it can't be imported normally."""
-    if name in sys.modules:
-        return sys.modules[name]
-    try:
-        __import__(name)
-        return sys.modules[name]
-    except Exception:
-        mod = types.ModuleType(name)
-        for k, v in attrs.items():
-            setattr(mod, k, v)
-        sys.modules[name] = mod
-        return mod
-
-_stub("news_ingestion", ingest=lambda: [])
-_stub("market_cache", get_markets=lambda: [])
-_stub("event_parser", parse_all=lambda *a, **kw: [], parse_with_llm=lambda *a, **kw: [])
-_stub("probability_engine", compute_estimates=lambda *a, **kw: [], merge_llm_estimates=lambda *a, **kw: [])
-_stub("edge_calculator", find_edges=lambda *a, **kw: [], TradeSignal=object)
-_stub("position_manager", open_position=lambda *a, **kw: None,
-      check_exits=lambda: 0, display_positions=lambda *a: None,
-      _fetch_market_price=lambda *a: None)
-_stub("price_monitor", record_and_detect=lambda *a: [])
-_stub("strategy_arena", run_arena=lambda *a, **kw: None, check_arena_exits=lambda *a: 0)
-
-# Now pre-import scanner so it's in sys.modules
-import scanner  # noqa: E402
+import src.scanner as scanner
 
 
 # ---------------------------------------------------------------------------

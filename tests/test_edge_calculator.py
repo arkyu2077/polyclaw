@@ -4,10 +4,10 @@ import pytest
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-import config as config_module
-from config import Config
-from probability_engine import ProbEstimate
-import edge_calculator
+import src.config as config_module
+from src.config import Config
+from src.probability_engine import ProbEstimate
+import src.edge_calculator as edge_calculator
 
 
 def make_config(tmp_path, **overrides):

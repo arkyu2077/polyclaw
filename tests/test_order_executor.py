@@ -6,21 +6,6 @@ from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------
-# Stub out py_clob_client before any import of order_executor
-# ---------------------------------------------------------------------------
-
-def _stub_py_clob_client():
-    """Insert fake py_clob_client modules into sys.modules if not installed."""
-    if "py_clob_client" not in sys.modules:
-        clob = MagicMock()
-        sys.modules["py_clob_client"] = clob
-        sys.modules["py_clob_client.client"] = clob
-        sys.modules["py_clob_client.clob_types"] = clob
-
-_stub_py_clob_client()
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -42,12 +27,12 @@ def test_order_rejected_when_cost_exceeds_config_max(mock_config, monkeypatch):
     """Order cost > cfg.max_order_size should return None."""
     mock_config.max_order_size = 10.0
 
-    monkeypatch.setattr("order_executor._get_client", lambda: _make_mock_client())
-    monkeypatch.setattr("order_executor.get_daily_pnl", lambda mode: 0.0)
-    monkeypatch.setattr("order_executor.get_balance", lambda: 1000.0)
-    monkeypatch.setattr("order_executor.get_positions", lambda mode, status: [])
+    monkeypatch.setattr("src.order_executor._get_client", lambda: _make_mock_client())
+    monkeypatch.setattr("src.order_executor.get_daily_pnl", lambda mode: 0.0)
+    monkeypatch.setattr("src.order_executor.get_balance", lambda: 1000.0)
+    monkeypatch.setattr("src.order_executor.get_positions", lambda mode, status: [])
 
-    from order_executor import place_limit_order
+    from src.order_executor import place_limit_order
 
     # price=0.60, size=20 → cost=12 > max_order_size=10
     result = place_limit_order(
@@ -67,12 +52,12 @@ def test_order_rejected_when_daily_loss_exceeded(mock_config, monkeypatch):
     """Order should be rejected when daily PnL is worse than -cfg.daily_loss_limit."""
     mock_config.daily_loss_limit = 20.0
 
-    monkeypatch.setattr("order_executor._get_client", lambda: _make_mock_client())
-    monkeypatch.setattr("order_executor.get_daily_pnl", lambda mode: -25.0)
-    monkeypatch.setattr("order_executor.get_balance", lambda: 1000.0)
-    monkeypatch.setattr("order_executor.get_positions", lambda mode, status: [])
+    monkeypatch.setattr("src.order_executor._get_client", lambda: _make_mock_client())
+    monkeypatch.setattr("src.order_executor.get_daily_pnl", lambda mode: -25.0)
+    monkeypatch.setattr("src.order_executor.get_balance", lambda: 1000.0)
+    monkeypatch.setattr("src.order_executor.get_positions", lambda mode, status: [])
 
-    from order_executor import place_limit_order
+    from src.order_executor import place_limit_order
 
     # cost=5 < max_order_size default, but daily loss exceeds limit
     result = place_limit_order(
@@ -96,12 +81,12 @@ def test_order_rejected_when_max_positions_reached(mock_config, monkeypatch):
     # Return 2 open positions (dicts with any content — only len() is checked)
     fake_positions = [{"id": "p1"}, {"id": "p2"}]
 
-    monkeypatch.setattr("order_executor._get_client", lambda: _make_mock_client())
-    monkeypatch.setattr("order_executor.get_daily_pnl", lambda mode: 0.0)
-    monkeypatch.setattr("order_executor.get_balance", lambda: 1000.0)
-    monkeypatch.setattr("order_executor.get_positions", lambda mode, status: fake_positions)
+    monkeypatch.setattr("src.order_executor._get_client", lambda: _make_mock_client())
+    monkeypatch.setattr("src.order_executor.get_daily_pnl", lambda mode: 0.0)
+    monkeypatch.setattr("src.order_executor.get_balance", lambda: 1000.0)
+    monkeypatch.setattr("src.order_executor.get_positions", lambda mode, status: fake_positions)
 
-    from order_executor import place_limit_order
+    from src.order_executor import place_limit_order
 
     result = place_limit_order(
         token_id="tok3",
@@ -125,12 +110,12 @@ def test_order_accepted_within_limits(mock_config, monkeypatch):
     expected_result = {"orderID": "abc-456", "status": "matched"}
     mock_client = _make_mock_client(order_result=expected_result)
 
-    monkeypatch.setattr("order_executor._get_client", lambda: mock_client)
-    monkeypatch.setattr("order_executor.get_daily_pnl", lambda mode: 0.0)
-    monkeypatch.setattr("order_executor.get_balance", lambda: 1000.0)
-    monkeypatch.setattr("order_executor.get_positions", lambda mode, status: [])
+    monkeypatch.setattr("src.order_executor._get_client", lambda: mock_client)
+    monkeypatch.setattr("src.order_executor.get_daily_pnl", lambda mode: 0.0)
+    monkeypatch.setattr("src.order_executor.get_balance", lambda: 1000.0)
+    monkeypatch.setattr("src.order_executor.get_positions", lambda mode, status: [])
 
-    from order_executor import place_limit_order
+    from src.order_executor import place_limit_order
 
     # price=0.50, size=10 → cost=5, well within limits
     result = place_limit_order(

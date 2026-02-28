@@ -1,9 +1,9 @@
 """Tests for probability_engine.py — discount logic and merge behavior."""
 
 import pytest
-import config as config_module
-from config import Config
-from probability_engine import ProbEstimate, discount_ai_probability, merge_llm_estimates
+import src.config as config_module
+from src.config import Config
+from src.probability_engine import ProbEstimate, discount_ai_probability, merge_llm_estimates
 
 
 def make_config(tmp_path, **overrides):

@@ -3,8 +3,8 @@
 import os
 import pytest
 from pathlib import Path
-import config as config_module
-from config import Config, load_config
+import src.config as config_module
+from src.config import Config, load_config
 
 
 @pytest.fixture(autouse=True)

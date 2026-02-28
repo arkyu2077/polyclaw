@@ -34,22 +34,18 @@ _ensure_stub("py_clob_client")
 _ensure_stub("py_clob_client.client")
 _ensure_stub("py_clob_client.clob_types")
 
-# news_ingestion uses relative import `from .config` — stub if not importable
-_ensure_stub("news_ingestion", ingest=lambda: [])
+# rapidfuzz — required by event_parser.py
+_ensure_stub("rapidfuzz")
+_ensure_stub("rapidfuzz.fuzz")
 
-# Modules that import from news_ingestion or have complex deps
-_ensure_stub("market_cache", get_markets=lambda: [])
-_ensure_stub("event_parser", parse_all=lambda *a, **kw: [], parse_with_llm=lambda *a, **kw: [])
-_ensure_stub("price_monitor", record_and_detect=lambda *a: [])
-_ensure_stub("twitter_source")
-_ensure_stub("economic_calendar")
-_ensure_stub("volume_monitor")
-_ensure_stub("reddit_source")
-_ensure_stub("weather_source")
-_ensure_stub("sports_odds")
+# feedparser — required by news_ingestion.py
+_ensure_stub("feedparser")
 
-import config as config_module
-from config import Config
+# pandas — required by some modules
+_ensure_stub("pandas")
+
+import src.config as config_module
+from src.config import Config
 
 
 @pytest.fixture
