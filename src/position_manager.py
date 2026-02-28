@@ -58,9 +58,9 @@ class Position:
     entry_price: float
     shares: int
     cost: float
-    target_price: float
-    stop_loss: float
     entry_time: str
+    target_price: float = 0.0
+    stop_loss: float = 0.0
     status: str = "open"
     exit_price: float | None = None
     exit_time: str | None = None
