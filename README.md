@@ -217,7 +217,122 @@ python3 src/scanner.py --monitor --interval 90 --live --strategy sniper --use-ll
 
 Polyclaw is a **standard worker process** managed by [OpenClaw](https://github.com/arkyu2077/openclaw). It communicates via OS primitives: exec, signals, exit codes, and files.
 
-### 1. Prerequisites
+### User Walkthrough — Setting Up Polyclaw via OpenClaw
+
+Below is what a real setup session looks like through OpenClaw's chat interface.
+
+---
+
+**Step 1: Install Polyclaw**
+
+> **You**: 帮我安装 Polyclaw
+
+OpenClaw will clone the repo and run setup:
+
+```
+🔧 Cloning polyclaw...
+   git clone https://github.com/arkyu2077/polyclaw.git ~/clawd/ark/polyclaw
+🔧 Running setup...
+   cd ~/clawd/ark/polyclaw && ./setup.sh
+✅ Polyclaw installed. Virtual environment ready.
+
+⚠️  I need a few things before starting:
+   1. Polymarket wallet private key (required for trading)
+   2. LLM endpoint (recommended — without it only keyword matching, far fewer signals)
+   3. Discord webhook (optional — for trade alerts)
+```
+
+---
+
+**Step 2: Configure wallet**
+
+> **You**: 我的 private key 是 0xabc123...
+
+```
+✅ POLYMARKET_PRIVATE_KEY saved to .env
+🔧 Deriving CLOB credentials...
+   Running setup.sh to auto-derive API key, secret, passphrase, wallet address...
+✅ CLOB credentials derived and saved.
+```
+
+---
+
+**Step 3: Configure LLM (recommended)**
+
+> **You**: LLM 用我本地的代理，地址是 http://127.0.0.1:8045/v1，key 是 sk-8f72c36d...，模型用 gemini-3.1-pro-high
+
+```
+✅ LLM configured:
+   LLM_PROVIDER=openai
+   LLM_BASE_URL=http://127.0.0.1:8045/v1
+   LLM_API_KEY=sk-8f72c3...
+   LLM_MODEL=gemini-3.1-pro-high
+```
+
+> If you skip this step, Polyclaw still works — but only with keyword matching (significantly fewer trading signals).
+
+---
+
+**Step 4: Start the scanner**
+
+> **You**: 启动 Polyclaw
+
+```
+🔧 Readiness check... OK
+🚀 Starting Polyclaw scanner...
+   cd ~/clawd/ark/polyclaw && .venv/bin/python src/scanner.py --monitor --interval 90 --use-llm
+
+✅ Polyclaw is running (PID: 8533)
+   📊 Scanning every 90 seconds
+   🤖 LLM analysis enabled
+   📋 Logs: ~/clawd/ark/polyclaw/data/scanner.log
+```
+
+---
+
+**Step 5: Verify it's working**
+
+> **You**: Polyclaw 状态怎么样？
+
+OpenClaw reads `data/status.json` and reports:
+
+```
+✅ Polyclaw is healthy
+   PID:                8533
+   Status:             running
+   Uptime:             2h 15m
+   Last scan:          12 seconds ago
+   Open positions:     3
+   Today P&L:          -$2.15
+   Consecutive errors: 0
+```
+
+---
+
+**Step 6: Stop (when needed)**
+
+> **You**: 停止 Polyclaw
+
+```
+🛑 Sending SIGTERM to PID 8533...
+   Waiting for current scan to finish...
+✅ Polyclaw stopped gracefully (exit code 0).
+```
+
+---
+
+**What you end up with:**
+
+```
+Processes:  1 (polyclaw scanner, 90s loop)
+Cron jobs:  0 (none needed)
+Log file:   data/scanner.log
+Status:     data/status.json (OpenClaw reads this for health checks)
+```
+
+---
+
+### Technical Reference (for OpenClaw developers)
 
 Before starting Polyclaw, OpenClaw must verify:
 
