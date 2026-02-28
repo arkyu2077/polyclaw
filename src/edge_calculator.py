@@ -4,8 +4,8 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from probability_engine import ProbEstimate
-from config import get_config
+from .probability_engine import ProbEstimate
+from .config import get_config
 
 FILTERED_LOG = Path(__file__).parent / "filtered_signals.json"
 _MAX_FILTERED_ENTRIES = 500  # Keep last 500

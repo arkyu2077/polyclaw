@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 
-from config import get_config
+from .config import get_config
 
 
 @dataclass

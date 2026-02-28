@@ -8,15 +8,15 @@ All logic has moved to:
 """
 
 # Re-export all public functions for backward compatibility
-from order_executor import get_balance, get_open_orders, place_limit_order, release_funds_for_signal
-from position_tracker import (
+from .order_executor import get_balance, get_open_orders, place_limit_order, release_funds_for_signal
+from .position_tracker import (
     get_live_positions,
     open_live_position,
     close_live_position,
     check_pending_orders,
 )
-from exit_manager import check_live_exits, cleanup_stale_orders
-from redemption import auto_redeem_resolved
+from .exit_manager import check_live_exits, cleanup_stale_orders
+from .redemption import auto_redeem_resolved
 
 __all__ = [
     "get_balance",

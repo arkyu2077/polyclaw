@@ -418,7 +418,7 @@ def parse_with_llm(news_items: list[dict], markets: list[dict]) -> list[dict]:
     Returns list of dicts with keys: market_id, question, estimated_probability,
     confidence, direction, reasoning, news_title, source (='LLM').
     """
-    from llm_analyzer import analyze_news_batch
+    from .llm_analyzer import analyze_news_batch
 
     try:
         llm_signals = analyze_news_batch(news_items, markets)

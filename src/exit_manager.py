@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 
 from rich.console import Console
 
-from config import get_config
-from db import get_positions, add_notification
-from order_executor import _get_client
-from position_tracker import close_live_position, check_pending_orders
+from .config import get_config
+from .db import get_positions, add_notification
+from .order_executor import _get_client
+from .position_tracker import close_live_position, check_pending_orders
 
 console = Console()
 

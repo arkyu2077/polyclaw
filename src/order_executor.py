@@ -12,8 +12,8 @@ from py_clob_client.clob_types import (
 )
 from rich.console import Console
 
-from config import get_config
-from db import get_positions, get_daily_pnl, add_notification
+from .config import get_config
+from .db import get_positions, get_daily_pnl, add_notification
 
 console = Console()
 
