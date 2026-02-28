@@ -34,6 +34,29 @@ from db import (
 
 console = Console()
 
+# Module-level start time — set once when monitor starts
+_started_at = None
+
+
+def _write_status(data_dir: Path, consecutive_errors: int, status: str = "running"):
+    """Write status.json for orchestrator health monitoring."""
+    try:
+        from db import get_positions, get_daily_pnl
+        open_pos = get_positions(mode="paper", status="open")
+        status_data = {
+            "pid": os.getpid(),
+            "status": status,
+            "started_at": _started_at,
+            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+            "consecutive_errors": consecutive_errors,
+            "open_positions": len(open_pos),
+            "today_pnl": round(get_daily_pnl(mode="paper"), 2),
+        }
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / "status.json").write_text(json.dumps(status_data, indent=2))
+    except Exception:
+        pass  # Status file write failure must not affect main loop
+
 
 def _log_dedup(sig, age_hours: float):
     """Log a signal filtered by cooldown dedup — stored in signals table."""
@@ -463,12 +486,19 @@ def main():
     ))
 
     if args.monitor:
+        global _started_at
+        _started_at = datetime.now(timezone.utc).isoformat()
+
+        cfg = get_config()
+        data_dir = Path(cfg.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+
         console.print(f"[bold]Monitoring[/bold] every {args.interval}s (Ctrl+C to stop)\n")
         consecutive_errors = 0
         max_consecutive_errors = 10
 
         # ── Single-instance lock (prevents duplicate processes) ──
-        lock_file = Path(__file__).parent / "scanner.lock"
+        lock_file = data_dir / "scanner.lock"
         lock_fd = open(lock_file, "w")
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -478,12 +508,22 @@ def main():
         lock_fd.write(str(os.getpid()))
         lock_fd.flush()
 
-        # Write PID file for watchdog
-        pid_file = Path(__file__).parent / "scanner.pid"
+        # Write PID file
+        pid_file = data_dir / "scanner.pid"
         pid_file.write_text(str(os.getpid()))
 
-        # Heartbeat file — watchdog checks this
-        heartbeat_file = Path(__file__).parent / "scanner_heartbeat"
+        # Heartbeat file
+        heartbeat_file = data_dir / "scanner_heartbeat"
+
+        # ── SIGTERM handler for graceful shutdown ──
+        _shutdown_requested = False
+
+        def _handle_sigterm(signum, frame):
+            nonlocal _shutdown_requested
+            _shutdown_requested = True
+            console.print("\n[yellow]SIGTERM received, finishing current scan...[/yellow]")
+
+        signal.signal(signal.SIGTERM, _handle_sigterm)
 
         try:
             while True:
@@ -502,6 +542,8 @@ def main():
                     signal.signal(signal.SIGALRM, old_handler)
                     consecutive_errors = 0
 
+                    _write_status(data_dir, consecutive_errors, status="running")
+
                 except TimeoutError as e:
                     consecutive_errors += 1
                     console.print(f"\n[red]⏰ Scan timeout: {e}[/red] ({consecutive_errors}/{max_consecutive_errors})")
@@ -513,6 +555,11 @@ def main():
 
                 if consecutive_errors >= max_consecutive_errors:
                     console.print(f"\n[bold red]💀 {max_consecutive_errors} consecutive errors — exiting for restart[/bold red]")
+                    _write_status(data_dir, consecutive_errors, status="error")
+                    sys.exit(1)
+
+                if _shutdown_requested:
+                    console.print("[yellow]Graceful shutdown complete.[/yellow]")
                     break
 
                 console.print(f"\n[dim]Next scan in {args.interval}s...[/dim]")
@@ -520,6 +567,7 @@ def main():
         except KeyboardInterrupt:
             console.print("\n[yellow]Stopped.[/yellow]")
         finally:
+            _write_status(data_dir, consecutive_errors, status="stopped")
             pid_file.unlink(missing_ok=True)
     else:
         run_scan(min_edge=args.min_edge, bankroll=args.bankroll, use_llm=args.use_llm, llm_only=args.llm_only)

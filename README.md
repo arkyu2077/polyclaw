@@ -15,6 +15,7 @@ AI-powered news edge scanner and auto-trader for [Polymarket](https://polymarket
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
 - [Running Modes](#running-modes)
+- [OpenClaw Integration](#openclaw-integration)
 - [Safety Controls](#safety-controls)
 - [Extending](#extending)
 - [Disclaimer](#disclaimer)
@@ -288,7 +289,7 @@ polyclaw/
 ├── examples/                         # Usage examples
 ├── config.example.yaml               # Strategy parameter template
 ├── .env.example                      # Environment variables template
-├── run.sh                            # Start scanner as background daemon
+├── run.sh                            # Dev/debug foreground launcher (exec-based)
 ├── setup.sh                          # One-time setup + CLOB credential derivation
 ├── requirements.txt                  # Python dependencies
 ├── pyproject.toml                    # Package metadata
@@ -329,6 +330,89 @@ The arena runs automatically alongside the main scanner. Results are stored in `
 | `--strategy NAME` | Active strategy: `sniper`, `baseline`, `conservative`, `aggressive`, `trend_follower` |
 | `--use-llm` | Enable LLM-assisted analysis (requires external setup) |
 | `--llm-only` | Skip keyword matching, use only LLM analysis |
+
+## OpenClaw Integration
+
+Polyclaw is designed as a **standard worker process** managed by [OpenClaw](https://github.com/arkyu2077/openclaw) (the central orchestrator). It communicates via OS primitives: exec, signals, exit codes, and files.
+
+### Worker Contract
+
+| Operation | How |
+|---|---|
+| **Start** | `cd /path/to/polyclaw && .venv/bin/python src/scanner.py --monitor --interval 90 --use-llm` |
+| **Stop** | `kill <pid>` — sends SIGTERM, scanner finishes current scan then exits with code 0 |
+| **Health** | Read `data/status.json` (see below) |
+
+### Status File (`data/status.json`)
+
+The scanner writes this file after every scan cycle and on shutdown. OpenClaw reads it for health monitoring.
+
+```json
+{
+  "pid": 12345,
+  "status": "running",
+  "started_at": "2026-02-28T10:00:00+00:00",
+  "last_heartbeat": "2026-02-28T12:34:56+00:00",
+  "consecutive_errors": 0,
+  "open_positions": 3,
+  "today_pnl": -2.15
+}
+```
+
+| Field | Description |
+|---|---|
+| `pid` | OS process ID |
+| `status` | `"running"` / `"stopped"` / `"error"` |
+| `started_at` | ISO timestamp of when monitor mode started |
+| `last_heartbeat` | ISO timestamp of last successful scan |
+| `consecutive_errors` | Number of consecutive scan failures |
+| `open_positions` | Number of open paper trading positions |
+| `today_pnl` | Today's paper P&L in USD |
+
+### Exit Codes
+
+| Code | Meaning | OpenClaw Action |
+|---|---|---|
+| **0** | Graceful shutdown (SIGTERM or Ctrl+C) | Do not restart unless explicitly requested |
+| **1** | Circuit breaker tripped (10 consecutive errors) | Restart after investigating logs |
+
+### Health Check Logic
+
+OpenClaw should implement this decision tree:
+
+```
+1. Read data/status.json
+   - File missing or unreadable → process never started or crashed hard → start it
+   - status == "error" → circuit breaker tripped → check logs, then restart
+   - status == "stopped" → was intentionally stopped → no action needed
+
+2. Check last_heartbeat age
+   - > 5 minutes stale → process is hung → kill PID, then restart
+
+3. Check if PID is alive
+   - kill -0 <pid> fails → process crashed → restart
+```
+
+### Files Written to `data/`
+
+| File | Purpose |
+|---|---|
+| `data/status.json` | Health status for OpenClaw (see above) |
+| `data/scanner.pid` | Process ID (cleaned up on graceful exit) |
+| `data/scanner.lock` | `fcntl` lock preventing duplicate instances |
+| `data/scanner_heartbeat` | Raw ISO timestamp updated every scan cycle |
+
+### Development / Manual Run
+
+For local development without OpenClaw, use the convenience script:
+
+```bash
+./run.sh                          # foreground, Ctrl+C to stop
+./run.sh --interval 30            # override interval
+./run.sh --live --strategy sniper # pass extra flags
+```
+
+`run.sh` uses `exec` to replace the shell process, so the scanner receives signals directly.
 
 ## Safety Controls
 
