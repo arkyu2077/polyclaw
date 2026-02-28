@@ -29,7 +29,7 @@ from .strategy_arena import run_arena, check_arena_exits
 from .config import get_config
 from .db import (
     insert_signal, get_cooldown, set_cooldown, prune_cooldowns,
-    get_all_cooldowns,
+    get_all_cooldowns, add_notification, get_portfolio_summary,
 )
 
 console = Console()
@@ -439,6 +439,18 @@ def save_signals(trade_signals: list[TradeSignal]):
             "cooldown_age_hours": None,
         })
 
+        # Notify OpenClaw about detected signal
+        try:
+            add_notification(
+                f"[Signal] {sig.question[:60]} | "
+                f"{sig.direction} | edge={sig.edge:+.1%} | "
+                f"AI={sig.ai_probability:.0%} vs Mkt={sig.current_price:.0%} | "
+                f"${sig.position_size:.0f} ({sig.reliability})",
+                "SIGNAL_DETECTED",
+            )
+        except Exception:
+            pass
+
     # Write alert file when signals found — cron job picks this up (keep as JSON)
     alert_file = Path(__file__).parent / "ALERT.json"
     if trade_signals:
@@ -525,6 +537,9 @@ def main():
 
         signal.signal(signal.SIGTERM, _handle_sigterm)
 
+        # Portfolio summary timer — notify every 30 minutes
+        _last_summary_time = 0.0
+
         try:
             while True:
                 try:
@@ -543,6 +558,25 @@ def main():
                     consecutive_errors = 0
 
                     _write_status(data_dir, consecutive_errors, status="running")
+
+                    # Portfolio summary every 30 minutes
+                    now_ts = time.time()
+                    if now_ts - _last_summary_time >= 1800:  # 30 min
+                        _last_summary_time = now_ts
+                        try:
+                            summary = get_portfolio_summary(mode="paper")
+                            add_notification(
+                                f"[Portfolio] "
+                                f"Open: {summary['open_positions']} | "
+                                f"Today: {summary['today_trades']} trades "
+                                f"(W{summary['today_wins']}/L{summary['today_losses']}) "
+                                f"PnL=${summary['today_pnl']:+.2f} | "
+                                f"All-time: {summary['all_time_trades']} trades "
+                                f"PnL=${summary['all_time_pnl']:+.2f}",
+                                "PORTFOLIO_SUMMARY",
+                            )
+                        except Exception:
+                            pass
 
                 except TimeoutError as e:
                     consecutive_errors += 1

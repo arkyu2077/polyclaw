@@ -418,11 +418,51 @@ Written after every scan and on shutdown:
 3. kill -0 <pid> fails → crashed → restart
 ```
 
-### 8. Data Files
+### 8. Notifications
+
+Polyclaw writes all events to a `notifications` table in SQLite (`data/polyclaw.db`). OpenClaw polls this table to deliver real-time updates to the user.
+
+**Notification actions:**
+
+| Action | Trigger | Example |
+|---|---|---|
+| `SIGNAL_DETECTED` | Signal passes edge threshold | `[Signal] Will BTC hit 100k? | BUY_YES | edge=+5.2% | AI=65% vs Mkt=58% | $42 (medium)` |
+| `SIGNAL_FILTERED` | Signal detected but filtered out | `[Filtered] Will BTC hit 100k? | AI=65% vs Mkt=60% | Edge below threshold | yes=+3.2% no=-1.8%` |
+| `PORTFOLIO_SUMMARY` | Every 30 minutes | `[Portfolio] Open: 3 | Today: 5 trades (W3/L2) PnL=$+4.20 | All-time: 28 trades PnL=$-12.50` |
+| `ORDER_PLACED` | Live order submitted to CLOB | Order details with market, direction, size |
+| `ORDER_FILLED` | Order filled on-chain | Fill price, shares, cost |
+| `POSITION_CLOSED` | Position exits (TP/SL/timeout) | Exit reason, PnL |
+| `REDEEMED` | Resolved market redeemed on-chain | Redemption amount |
+
+**Filter reasons** (for `SIGNAL_FILTERED`):
+
+| Reason | Meaning |
+|---|---|
+| `edge_below_threshold` | Edge after fees < minimum (default 2%) |
+| `lottery_ticket` | Entry price < 3c (almost always correctly priced) |
+| `absurd_edge` | Edge > 40% (likely AI hallucination) |
+| `expiring_<1h` | Market expires in less than 1 hour |
+| `extreme_low_price_mismatch` | Market < 10% but AI says > 35% |
+| `extreme_high_price_mismatch` | Market > 90% but AI says < 65% |
+| `price_too_high` | Entry price > 99.9% |
+| `too_few_shares` | Kelly sizing yields < 5 shares |
+
+**Consumption pattern** (for OpenClaw developers):
+
+```sql
+-- Read pending notifications
+SELECT * FROM notifications WHERE consumed = 0 ORDER BY created_at;
+
+-- Mark as consumed after delivery
+UPDATE notifications SET consumed = 1 WHERE id IN (1, 2, 3);
+```
+
+### 9. Data Files
 
 | File | Purpose |
 |---|---|
 | `data/status.json` | Health status (see above) |
+| `data/polyclaw.db` | SQLite database (positions, trades, signals, notifications) |
 | `data/scanner.pid` | PID (cleaned up on graceful exit) |
 | `data/scanner.lock` | `fcntl` lock preventing duplicates |
 | `data/scanner_heartbeat` | Raw ISO timestamp, updated every scan |

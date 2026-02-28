@@ -246,6 +246,42 @@ def get_daily_pnl(mode: str = "live") -> float:
     return float(row["total"]) if row else 0.0
 
 
+def get_portfolio_summary(mode: str = "paper") -> dict:
+    """Build a portfolio summary for notifications."""
+    conn = get_db()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    open_positions = conn.execute(
+        "SELECT COUNT(*) as cnt FROM positions WHERE mode = ? AND status = 'open'",
+        (mode,),
+    ).fetchone()["cnt"]
+
+    today_trades = conn.execute(
+        "SELECT COUNT(*) as cnt, "
+        "COALESCE(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), 0) as wins, "
+        "COALESCE(SUM(CASE WHEN pnl <= 0 THEN 1 ELSE 0 END), 0) as losses, "
+        "COALESCE(SUM(pnl), 0) as total_pnl "
+        "FROM trades WHERE mode = ? AND exit_time LIKE ?",
+        (mode, f"{today}%"),
+    ).fetchone()
+
+    all_time = conn.execute(
+        "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl), 0) as total_pnl "
+        "FROM trades WHERE mode = ?",
+        (mode,),
+    ).fetchone()
+
+    return {
+        "open_positions": open_positions,
+        "today_trades": today_trades["cnt"],
+        "today_wins": today_trades["wins"],
+        "today_losses": today_trades["losses"],
+        "today_pnl": round(float(today_trades["total_pnl"]), 2),
+        "all_time_trades": all_time["cnt"],
+        "all_time_pnl": round(float(all_time["total_pnl"]), 2),
+    }
+
+
 # ═══════════════════════════════════════════════════
 # Signals CRUD
 # ═══════════════════════════════════════════════════

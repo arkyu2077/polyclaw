@@ -6,9 +6,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 from .probability_engine import ProbEstimate
 from .config import get_config
+from .db import add_notification
 
 FILTERED_LOG = Path(__file__).parent / "filtered_signals.json"
 _MAX_FILTERED_ENTRIES = 500  # Keep last 500
+
+# Human-readable filter reasons
+_FILTER_LABELS = {
+    "expiring_<1h": "Expiring in <1h",
+    "edge_below_threshold": "Edge below threshold",
+    "lottery_ticket": "Lottery ticket (<3c)",
+    "price_too_high": "Price too high (>99.9%)",
+    "absurd_edge": "Absurd edge (>40%)",
+    "extreme_low_price_mismatch": "Low-price mismatch",
+    "extreme_high_price_mismatch": "High-price mismatch",
+    "too_few_shares": "Too few shares",
+}
 
 
 def _log_filtered(estimate: ProbEstimate, reason: str, details: dict = None):
@@ -31,6 +44,27 @@ def _log_filtered(estimate: ProbEstimate, reason: str, details: dict = None):
     entries.append(entry)
     entries = entries[-_MAX_FILTERED_ENTRIES:]
     FILTERED_LOG.write_text(json.dumps(entries, indent=2, ensure_ascii=False))
+
+    # Write to notifications for OpenClaw consumption
+    label = _FILTER_LABELS.get(reason, reason)
+    edge_str = ""
+    if details:
+        yes_e = details.get("yes_edge")
+        no_e = details.get("no_edge")
+        if yes_e is not None:
+            edge_str = f" | yes={yes_e:+.1%} no={no_e:+.1%}"
+        edge_val = details.get("edge")
+        if edge_val is not None:
+            edge_str = f" | edge={edge_val:+.1%}"
+    try:
+        add_notification(
+            f"[Filtered] {estimate.question[:60]} | "
+            f"AI={estimate.ai_probability:.0%} vs Mkt={estimate.current_price:.0%} | "
+            f"{label}{edge_str}",
+            "SIGNAL_FILTERED",
+        )
+    except Exception:
+        pass
 
 
 def estimate_fee(price: float, market_type: str = "default") -> float:
