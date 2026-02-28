@@ -111,14 +111,19 @@ max_alerts_per_hour: 5
 # Discount factor for AI probability estimates (0.5 = trust 50% of predicted move)
 ai_estimate_discount: 0.5
 
-# LLM provider: "file" (cron-based), "gemini", "openai", "anthropic"
-llm_provider: "file"
+# LLM provider: "openai" (+ any compatible proxy), "gemini", "anthropic"
+# When base_url is set, always uses OpenAI-compatible protocol regardless of provider name.
+llm_provider: "openai"
+
+# Base URL for OpenAI-compatible endpoint (local proxy, OneAPI, LiteLLM, vLLM, Ollama, etc.)
+# Leave empty to use provider's official API.
+# llm_base_url: "http://127.0.0.1:8045/v1"
 
 # LLM model override (leave empty for provider default)
-# Examples: "gemini-2.0-flash", "gpt-4o-mini", "claude-sonnet-4-6"
+# Examples: "gemini-3.1-pro-high", "gpt-4o-mini", "claude-sonnet-4-6"
 llm_model: ""
 
-# Note: LLM_API_KEY is a secret — set it in .env, NOT here
+# Note: LLM_API_KEY and LLM_BASE_URL are secrets — set them in .env, NOT here
 
 # ─── STRATEGY ARENA ───────────────────────────────────────────────────────
 

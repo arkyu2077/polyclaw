@@ -1,10 +1,7 @@
-"""LLM-powered news analysis — file-based IPC or direct API call."""
+"""LLM-powered news analysis — direct API call to any OpenAI-compatible endpoint."""
 
 import json
-import os
 import re
-import time
-from pathlib import Path
 from dataclasses import dataclass
 
 from .config import get_config
@@ -21,11 +18,6 @@ class LLMSignal:
     news_title: str = ""
     market_question: str = ""
     market_id: str = ""
-
-
-DATA_DIR = Path(__file__).parent
-LLM_REQUEST = DATA_DIR / "llm_request.json"
-LLM_RESPONSE = DATA_DIR / "llm_response.json"
 
 
 def build_prompt(news_items: list[dict], markets: list[dict],
@@ -77,49 +69,24 @@ def _yes_price(market: dict) -> str:
 
 def analyze_news_batch(news_items: list[dict], markets: list[dict],
                        matched_market_ids: set[str] | None = None) -> list[LLMSignal]:
-    """Analyze news via LLM — file-based IPC (cron) or direct API call."""
+    """Analyze news via LLM API call."""
     cfg = get_config()
     if not news_items or not markets:
         return []
 
-    if cfg.llm_provider == "file":
-        return _read_from_file(news_items, markets)
-    elif cfg.llm_provider in ("gemini", "openai", "anthropic"):
+    if cfg.llm_provider in ("openai", "gemini", "anthropic"):
         return _call_api(news_items, markets, matched_market_ids, cfg)
 
-    print(f"[LLM] Unknown provider: {cfg.llm_provider}")
+    if cfg.llm_provider:
+        print(f"[LLM] Unknown provider: {cfg.llm_provider}")
+    else:
+        print("[LLM] No LLM_PROVIDER set — skipping LLM analysis")
     return []
-
-
-def _read_from_file(news_items: list[dict], markets: list[dict]) -> list[LLMSignal]:
-    """Read analysis from llm_response.json (written by cron job)."""
-    if not LLM_RESPONSE.exists():
-        print("[LLM] No analysis yet (waiting for cron job)")
-        return []
-
-    age = time.time() - LLM_RESPONSE.stat().st_mtime
-    if age > 600:
-        print(f"[LLM] Analysis is stale ({age/60:.0f}min old)")
-        return []
-
-    try:
-        response_text = LLM_RESPONSE.read_text().strip()
-        data = _extract_json(response_text)
-        if data and "signals" in data:
-            signals = _parse_signals(data, news_items, markets)
-            print(f"[LLM] File analysis: {len(signals)} signals ({age:.0f}s ago)")
-            return signals
-        else:
-            print("[LLM] Response not parseable")
-            return []
-    except Exception as e:
-        print(f"[LLM] Error reading analysis: {e}")
-        return []
 
 
 def _call_api(news_items: list[dict], markets: list[dict],
               matched_market_ids: set[str] | None, cfg) -> list[LLMSignal]:
-    """Call LLM API directly (Gemini, OpenAI, or Anthropic)."""
+    """Call LLM API (OpenAI-compatible, Gemini, or Anthropic)."""
     import httpx
 
     prompt = build_prompt(news_items, markets, matched_market_ids)
@@ -130,7 +97,8 @@ def _call_api(news_items: list[dict], markets: list[dict],
 
     model = cfg.llm_model
     try:
-        if cfg.llm_provider == "gemini":
+        if cfg.llm_provider == "gemini" and not cfg.llm_base_url:
+            # Native Gemini API (non-OpenAI-compatible)
             model = model or "gemini-2.0-flash"
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
             payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -138,20 +106,8 @@ def _call_api(news_items: list[dict], markets: list[dict],
             resp.raise_for_status()
             text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
-        elif cfg.llm_provider == "openai":
-            model = model or "gpt-4o-mini"
-            url = "https://api.openai.com/v1/chat/completions"
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-            }
-            resp = httpx.post(url, json=payload, timeout=60,
-                              headers={"Authorization": f"Bearer {api_key}"})
-            resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
-
-        elif cfg.llm_provider == "anthropic":
+        elif cfg.llm_provider == "anthropic" and not cfg.llm_base_url:
+            # Native Anthropic API (non-OpenAI-compatible)
             model = model or "claude-sonnet-4-6"
             url = "https://api.anthropic.com/v1/messages"
             payload = {
@@ -165,15 +121,29 @@ def _call_api(news_items: list[dict], markets: list[dict],
             })
             resp.raise_for_status()
             text = resp.json()["content"][0]["text"]
+
         else:
-            return []
+            # OpenAI-compatible (works with OpenAI, local proxies, OneAPI, LiteLLM, vLLM, Ollama, etc.)
+            model = model or "gpt-4o-mini"
+            base_url = (cfg.llm_base_url or "https://api.openai.com/v1").rstrip("/")
+            url = f"{base_url}/chat/completions"
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+            }
+            resp = httpx.post(url, json=payload, timeout=60,
+                              headers={"Authorization": f"Bearer {api_key}"})
+            resp.raise_for_status()
+            text = resp.json()["choices"][0]["message"]["content"]
 
         data = _extract_json(text)
         if data and "signals" in data:
             signals = _parse_signals(data, news_items, markets)
-            print(f"[LLM] {cfg.llm_provider}/{model}: {len(signals)} signals")
-            # Cache response for dedup within same cycle
-            LLM_RESPONSE.write_text(text)
+            label = f"{cfg.llm_provider}/{model}"
+            if cfg.llm_base_url:
+                label = f"{cfg.llm_base_url} ({model})"
+            print(f"[LLM] {label}: {len(signals)} signals")
             return signals
         else:
             print(f"[LLM] {cfg.llm_provider} response not parseable")
@@ -202,24 +172,20 @@ def _extract_json(text: str) -> dict | None:
 
 
 def _parse_signals(data: dict, news_items: list[dict], markets: list[dict]) -> list[LLMSignal]:
-    """Parse JSON signals into LLMSignal objects.
-    
-    Uses market_id from LLM response to find the correct market (avoids index drift
-    when market_cache.json changes between LLM cron run and scanner read).
-    """
+    """Parse JSON signals into LLMSignal objects."""
     # Build market lookup by condition_id
     market_by_id = {}
     for i, m in enumerate(markets):
         mid = m.get("id", "") or m.get("condition_id", "")
         if mid:
             market_by_id[mid] = (i, m)
-    
+
     signals = []
     for s in data["signals"]:
         try:
             ni = int(s.get("news_index", 0))
-            
-            # Prefer market_id lookup over array index (index drifts between cron runs)
+
+            # Prefer market_id lookup over array index
             market_id_from_llm = s.get("market_id", "")
             if market_id_from_llm and market_id_from_llm in market_by_id:
                 mi, market = market_by_id[market_id_from_llm]
@@ -228,10 +194,10 @@ def _parse_signals(data: dict, news_items: list[dict], markets: list[dict]) -> l
                 if mi >= len(markets):
                     continue
                 market = markets[mi]
-            
+
             if ni >= len(news_items):
                 ni = 0  # fallback; news_title from LLM is more reliable anyway
-            
+
             signals.append(LLMSignal(
                 news_index=ni,
                 market_index=mi,

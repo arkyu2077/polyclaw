@@ -91,15 +91,27 @@ class TestBuildPrompt:
 
 class TestAnalyzeRouting:
 
-    def test_analyze_routes_to_file_provider(self, mock_config, tmp_path):
-        """cfg.llm_provider='file' calls _read_from_file."""
-        mock_config.llm_provider = "file"
+    def test_analyze_routes_to_custom_base_url(self, mock_config):
+        """cfg.llm_base_url routes openai/gemini/anthropic to custom endpoint."""
+        mock_config.llm_provider = "openai"
+        mock_config.llm_api_key = "sk-test"
+        mock_config.llm_model = "my-model"
+        mock_config.llm_base_url = "http://127.0.0.1:8045/v1"
 
-        with patch("llm_analyzer._read_from_file", return_value=[]) as mock_file:
+        resp_text = _valid_api_response()
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": resp_text}}]
+        }
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch("httpx.post", return_value=mock_resp) as mock_post:
             from llm_analyzer import analyze_news_batch
             analyze_news_batch(_make_news(2), _make_markets(2))
 
-        mock_file.assert_called_once()
+        called_url = mock_post.call_args[0][0]
+        assert "127.0.0.1:8045" in called_url
+        assert called_url.endswith("/chat/completions")
 
     def test_analyze_routes_to_gemini(self, mock_config):
         """cfg.llm_provider='gemini' calls Gemini URL."""

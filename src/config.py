@@ -85,7 +85,8 @@ class Config:
 
     # LLM
     ai_estimate_discount: float = 0.5
-    llm_provider: str = "file"       # "file" (cron), "gemini", "openai", "anthropic"
+    llm_provider: str = ""           # "openai" (+ compatible proxies), "gemini", "anthropic"
+    llm_base_url: str = ""           # e.g. "http://127.0.0.1:8045/v1" for local proxy
     llm_api_key: str = ""            # from env var LLM_API_KEY
     llm_model: str = ""              # e.g. "gemini-2.0-flash", "gpt-4o-mini"
 
@@ -243,7 +244,7 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         # Signal dedup
         "signal_cooldown_hours", "max_alerts_per_hour",
         # LLM
-        "ai_estimate_discount", "llm_provider", "llm_model",
+        "ai_estimate_discount", "llm_provider", "llm_base_url", "llm_model",
         # Arena
         "active_strategies", "strategy_overrides",
     }
@@ -264,6 +265,7 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         twitter_rapidapi_keys=twitter_keys,
         rpc_url=os.environ.get("POLYGON_RPC_URL", "https://polygon-bor-rpc.publicnode.com"),
         llm_api_key=os.environ.get("LLM_API_KEY", ""),
+        llm_base_url=os.environ.get("LLM_BASE_URL", ""),
         bankroll=float(os.environ.get("INITIAL_BANKROLL", strategy_params.pop("bankroll", 1000.0))),
         data_dir=os.environ.get("DATA_DIR", strategy_params.pop("data_dir", "./data")),
         _config_dir=Path(config_path).parent if config_path else Path.cwd(),

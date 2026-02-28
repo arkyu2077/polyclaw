@@ -66,7 +66,8 @@ def test_default_values(tmp_path):
 
     # LLM
     assert cfg.ai_estimate_discount == 0.5
-    assert cfg.llm_provider == "file"
+    assert cfg.llm_provider == ""
+    assert cfg.llm_base_url == ""
     assert cfg.llm_api_key == ""
     assert cfg.llm_model == ""
 
