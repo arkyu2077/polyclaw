@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 
 from rich.console import Console
 
-from config import get_config
-from db import add_notification
-from order_executor import _get_client
+from .config import get_config
+from .db import add_notification
+from .order_executor import _get_client
 
 console = Console()
 

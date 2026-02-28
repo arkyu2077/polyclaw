@@ -352,7 +352,7 @@ def compute_estimates(signals, markets_by_id: dict) -> list[ProbEstimate]:
     return estimates
 
 
-from config import get_config
+from .config import get_config
 
 
 def discount_ai_probability(ai_prob: float, market_price: float) -> float:

@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 
 from rich.console import Console
 
-from config import get_config
-from db import get_positions, upsert_position, insert_trade, add_notification, delete_positions_by_status
-from order_executor import _get_client, place_limit_order
+from .config import get_config
+from .db import get_positions, upsert_position, insert_trade, add_notification, delete_positions_by_status
+from .order_executor import _get_client, place_limit_order
 
 console = Console()
 
@@ -61,7 +61,7 @@ def open_live_position(
     reasoning: str = "",
 ) -> dict | None:
     """Open a live position: place order and track it."""
-    from decision_journal import (
+    from .decision_journal import (
         record_signal, record_decision, record_order, record_fill, add_event,
     )
 
@@ -170,7 +170,7 @@ def open_live_position(
 
 def close_live_position(position: dict, reason: str = "manual") -> dict | None:
     """Close a live position by selling shares."""
-    from decision_journal import record_settlement
+    from .decision_journal import record_settlement
     from py_clob_client.clob_types import OrderArgs, OrderType
 
     client = _get_client()
@@ -264,7 +264,7 @@ def close_live_position(position: dict, reason: str = "manual") -> dict | None:
 
 def check_pending_orders() -> int:
     """Check pending/partial orders for fill updates. Returns count of newly filled."""
-    from decision_journal import record_fill, add_event
+    from .decision_journal import record_fill, add_event
 
     positions = get_positions(mode="live")
     pending = [p for p in positions if p.get("status") in ("pending", "partial")]

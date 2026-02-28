@@ -10,7 +10,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import get_config
+from .config import get_config
 
 _local = threading.local()
 

@@ -18,16 +18,16 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from news_ingestion import ingest
-from market_cache import get_markets
-from event_parser import parse_all, parse_with_llm
-from probability_engine import compute_estimates, merge_llm_estimates
-from edge_calculator import find_edges, TradeSignal
-from position_manager import open_position, check_exits, display_positions, _fetch_market_price
-from price_monitor import record_and_detect
-from strategy_arena import run_arena, check_arena_exits
-from config import get_config
-from db import (
+from .news_ingestion import ingest
+from .market_cache import get_markets
+from .event_parser import parse_all, parse_with_llm
+from .probability_engine import compute_estimates, merge_llm_estimates
+from .edge_calculator import find_edges, TradeSignal
+from .position_manager import open_position, check_exits, display_positions, _fetch_market_price
+from .price_monitor import record_and_detect
+from .strategy_arena import run_arena, check_arena_exits
+from .config import get_config
+from .db import (
     insert_signal, get_cooldown, set_cooldown, prune_cooldowns,
     get_all_cooldowns,
 )
@@ -41,7 +41,7 @@ _started_at = None
 def _write_status(data_dir: Path, consecutive_errors: int, status: str = "running"):
     """Write status.json for orchestrator health monitoring."""
     try:
-        from db import get_positions, get_daily_pnl
+        from .db import get_positions, get_daily_pnl
         open_pos = get_positions(mode="paper", status="open")
         status_data = {
             "pid": os.getpid(),
@@ -119,7 +119,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
     new_items = ingest()
     # Twitter/X via RapidAPI
     try:
-        from twitter_source import fetch_all as fetch_tweets
+        from .twitter_source import fetch_all as fetch_tweets
         tweets = fetch_tweets()
         if tweets:
             new_items.extend(tweets)
@@ -128,7 +128,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
         console.print(f"  [dim]Twitter: {e}[/dim]")
     # Economic calendar
     try:
-        from economic_calendar import fetch_calendar
+        from .economic_calendar import fetch_calendar
         econ = fetch_calendar()
         if econ:
             new_items.extend(econ)
@@ -137,7 +137,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
         console.print(f"  [dim]EconCal: {e}[/dim]")
     # Polymarket volume spikes
     try:
-        from volume_monitor import detect_volume_spikes
+        from .volume_monitor import detect_volume_spikes
         spikes = detect_volume_spikes()
         if spikes:
             new_items.extend(spikes)
@@ -146,7 +146,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
         console.print(f"  [dim]VolMon: {e}[/dim]")
     # Reddit
     try:
-        from reddit_source import fetch_reddit
+        from .reddit_source import fetch_reddit
         reddit_items = fetch_reddit()
         if reddit_items:
             new_items.extend(reddit_items)
@@ -155,7 +155,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
         console.print(f"  [dim]Reddit: {e}[/dim]")
     # Weather
     try:
-        from weather_source import fetch_weather
+        from .weather_source import fetch_weather
         weather_items = fetch_weather()
         if weather_items:
             new_items.extend(weather_items)
@@ -164,7 +164,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
         console.print(f"  [dim]Weather: {e}[/dim]")
     # Sports Odds
     try:
-        from sports_odds import fetch_sports_odds
+        from .sports_odds import fetch_sports_odds
         odds_items = fetch_sports_odds()
         if odds_items:
             new_items.extend(odds_items)
@@ -279,7 +279,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
     # --- LIVE TRADING: check exits + cleanup + auto-redeem ---
     console.print("[bold red]💰 LIVE TRADING: monitoring...[/bold red]")
     try:
-        from live_trader import check_live_exits, auto_redeem_resolved, get_live_positions, cleanup_stale_orders
+        from .live_trader import check_live_exits, auto_redeem_resolved, get_live_positions, cleanup_stale_orders
         live_closed = check_live_exits()
         if live_closed:
             console.print(f"  [bold yellow]📤 Closed {live_closed} live positions[/bold yellow]")
@@ -311,7 +311,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
         arena_closed = check_arena_exits(_fetch_market_price)
 
         # Count open arena positions from db
-        from db import get_positions as db_get_positions
+        from .db import get_positions as db_get_positions
         arena_positions = db_get_positions(mode="arena", status="open")
         arena_opens = len(arena_positions)
         console.print(f"  Arena: {arena_opens} open positions, closed {arena_closed} this cycle")

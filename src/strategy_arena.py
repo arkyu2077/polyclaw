@@ -10,8 +10,8 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from config import get_config
-from db import get_positions, upsert_position, insert_trade, get_trades
+from .config import get_config
+from .db import get_positions, upsert_position, insert_trade, get_trades
 
 console = Console()
 
