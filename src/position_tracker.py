@@ -79,7 +79,8 @@ def open_live_position(
         console.print(f"[dim]  Journal signal error: {e}[/dim]")
 
     shares = int(size_usd / price) if price > 0 else 0
-    if shares < 2:
+    cfg = get_config()
+    if shares < cfg.min_shares:
         console.print(f"[yellow]  ⚠ Too few shares ({shares}), skipping[/yellow]")
         try:
             record_decision(trade_id, "skip", size_usd, price, shares, reason=f"Too few shares ({shares})")

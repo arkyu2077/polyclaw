@@ -308,7 +308,7 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
     console.print("[bold cyan]🏟️  Strategy Arena: feeding estimates to all variants...[/bold cyan]")
     try:
         run_arena(estimates, bankroll, live_trading=True)
-        arena_closed = check_arena_exits(_fetch_market_price)
+        arena_closed = check_arena_exits(_fetch_market_price, bankroll)
 
         # Count open arena positions from db
         from .db import get_positions as db_get_positions

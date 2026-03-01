@@ -14,14 +14,17 @@ import src.exit_manager as exit_manager
 # ---------------------------------------------------------------------------
 
 def _make_position(market_id="mkt1", token_id="tok1", entry_hours_ago=4,
-                   target_price=0.80, stop_loss=0.30):
+                   target_price=0.80, stop_loss=0.30, direction="BUY_YES",
+                   entry_price=0.40):
     entry_time = (datetime.now(timezone.utc) - timedelta(hours=entry_hours_ago)).isoformat()
     return {
         "market_id": market_id,
         "token_id": token_id,
         "entry_time": entry_time,
+        "entry_price": entry_price,
         "target_price": target_price,
         "stop_loss": stop_loss,
+        "direction": direction,
         "status": "open",
     }
 
@@ -62,6 +65,7 @@ class TestLiveExitTimeout:
             patch.object(exit_manager, "check_pending_orders"),
             patch.object(exit_manager, "close_live_position", return_value=True) as mock_close,
             patch.object(exit_manager, "add_notification"),
+            patch.object(exit_manager, "upsert_position"),
         ):
             result = exit_manager.check_live_exits()
 
@@ -84,6 +88,7 @@ class TestLiveExitTimeout:
             patch.object(exit_manager, "check_pending_orders"),
             patch.object(exit_manager, "close_live_position", return_value=True) as mock_close,
             patch.object(exit_manager, "add_notification"),
+            patch.object(exit_manager, "upsert_position"),
         ):
             result = exit_manager.check_live_exits()
 

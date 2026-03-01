@@ -136,6 +136,7 @@ class StrategyRunner:
 
     def try_open(self, market_id, question, direction, entry_price, ai_prob, confidence, trigger=""):
         """Try to open a position using this strategy's rules."""
+        cfg = get_config()
         if entry_price < 0.03:
             return None
         positions = self._load_positions()
@@ -152,7 +153,7 @@ class StrategyRunner:
         recent_closes = [h for h in history
                          if h.get("market_id") == market_id
                          and h.get("exit_time")
-                         and (datetime.now(timezone.utc) - datetime.fromisoformat(h["exit_time"])).total_seconds() < 14400]
+                         and (datetime.now(timezone.utc) - datetime.fromisoformat(h["exit_time"])).total_seconds() < cfg.signal_cooldown_hours * 3600]
         if recent_closes:
             return None
 
@@ -261,7 +262,10 @@ class StrategyRunner:
                     reason = "TIMEOUT"
 
             if reason:
-                pnl = round((current - pos["entry_price"]) * pos["shares"], 2)
+                if pos["direction"] == "BUY_YES":
+                    pnl = round((current - pos["entry_price"]) * pos["shares"], 2)
+                else:
+                    pnl = round((pos["entry_price"] - current) * pos["shares"], 2)
                 pos["status"] = "closed"
                 pos["exit_price"] = current
                 pos["exit_time"] = now.isoformat()
@@ -349,16 +353,20 @@ def run_arena(estimates, bankroll: float = 1000.0, live_trading: bool = False):
     cfg = get_config()
     active = set(cfg.active_strategies)
 
-    # Apply strategy parameter overrides from config.yaml
-    for name, overrides in cfg.strategy_overrides.items():
-        if name in STRATEGIES and isinstance(overrides, dict):
-            for key, value in overrides.items():
-                if hasattr(STRATEGIES[name], key):
-                    setattr(STRATEGIES[name], key, value)
-
-    for name, config in STRATEGIES.items():
+    # Build per-run copies so we never mutate global STRATEGIES
+    run_configs = {}
+    for name, base_config in STRATEGIES.items():
         if name not in active:
             continue
+        cfg_copy = copy.deepcopy(base_config)
+        overrides = cfg.strategy_overrides.get(name, {})
+        if isinstance(overrides, dict):
+            for key, value in overrides.items():
+                if hasattr(cfg_copy, key):
+                    setattr(cfg_copy, key, value)
+        run_configs[name] = cfg_copy
+
+    for name, config in run_configs.items():
         runner = StrategyRunner(config, bankroll)
 
         for est in estimates:
@@ -404,7 +412,7 @@ def run_arena(estimates, bankroll: float = 1000.0, live_trading: bool = False):
             # Live trading: if baseline opened a paper position, also place real order
             if live_trading and name == "baseline" and paper_pos is not None:
                 try:
-                    from live_trader import open_live_position, get_balance, release_funds_for_signal
+                    from .live_trader import open_live_position, get_balance, release_funds_for_signal
                     clob_ids = getattr(est, 'clob_token_ids', None) or []
                     if len(clob_ids) >= 2:
                         token_id = clob_ids[0] if direction == "BUY_YES" else clob_ids[1]
@@ -435,11 +443,11 @@ def run_arena(estimates, bankroll: float = 1000.0, live_trading: bool = False):
                     console.print(f"[red]  ❌ Live order failed: {e}[/red]")
 
 
-def check_arena_exits(price_fetcher):
+def check_arena_exits(price_fetcher, bankroll: float = 1000.0):
     """Check exits for all strategy variants."""
     total = 0
     for name, config in STRATEGIES.items():
-        runner = StrategyRunner(config)
+        runner = StrategyRunner(config, bankroll)
         closed = runner.check_exits(price_fetcher)
         total += closed
     return total
@@ -447,8 +455,12 @@ def check_arena_exits(price_fetcher):
 
 def arena_leaderboard(price_fetcher=None) -> str:
     """Generate a formatted leaderboard of all strategies."""
+    cfg = get_config()
+    active = set(cfg.active_strategies)
     stats = []
     for name, config in STRATEGIES.items():
+        if name not in active:
+            continue
         runner = StrategyRunner(config)
         s = runner.get_stats(price_fetcher)
         stats.append(s)

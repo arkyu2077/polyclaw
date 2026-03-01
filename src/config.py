@@ -79,6 +79,11 @@ class Config:
     max_kelly_fraction: float = 0.10
     min_shares: int = 5
 
+    # Order execution
+    max_spread: float = 0.10
+    price_bump_fallback: float = 0.02
+    balance_reserve_pct: float = 0.95
+
     # Signal dedup
     signal_cooldown_hours: float = 4.0
     max_alerts_per_hour: int = 5
@@ -241,6 +246,8 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         "live_timeout_hours", "stale_order_hours", "price_drift_threshold",
         # Edge calculator
         "min_edge_threshold", "max_kelly_fraction", "min_shares",
+        # Order execution
+        "max_spread", "price_bump_fallback", "balance_reserve_pct",
         # Signal dedup
         "signal_cooldown_hours", "max_alerts_per_hour",
         # LLM

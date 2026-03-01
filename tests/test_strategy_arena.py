@@ -1,12 +1,13 @@
 """Tests for strategy_arena.py — config-driven active strategies and overrides."""
 
+import copy
 import sys
 import pytest
 from unittest.mock import MagicMock, patch
 from dataclasses import dataclass, field
 
 import src.strategy_arena as strategy_arena
-from src.strategy_arena import run_arena, STRATEGIES
+from src.strategy_arena import run_arena, STRATEGIES, check_arena_exits
 
 
 # ---------------------------------------------------------------------------
@@ -120,11 +121,13 @@ class TestArenaActiveStrategies:
 class TestArenaStrategyOverrides:
 
     def test_arena_applies_strategy_overrides(self, mock_config):
-        """cfg.strategy_overrides overrides StrategyConfig fields before run."""
+        """cfg.strategy_overrides overrides StrategyConfig fields for the run only."""
         mock_config.active_strategies = ["sniper"]
         mock_config.strategy_overrides = {"sniper": {"timeout_hours": 3}}
         mock_config.max_order_size = 15.0
+        mock_config.signal_cooldown_hours = 4.0
 
+        original_timeout = STRATEGIES["sniper"].timeout_hours
         estimates = [_make_estimate(current_price=0.30, ai_prob=0.80, confidence=0.70)]
 
         with (
@@ -134,7 +137,33 @@ class TestArenaStrategyOverrides:
             patch.object(strategy_arena, "get_trades", return_value=[]),
         ):
             run_arena(estimates, bankroll=1000.0, live_trading=False)
-            assert STRATEGIES["sniper"].timeout_hours == 3
+            # Global STRATEGIES must NOT be mutated by overrides
+            assert STRATEGIES["sniper"].timeout_hours == original_timeout
+
+    def test_overrides_do_not_mutate_global_strategies(self, mock_config):
+        """Running arena twice with different overrides must not leak state."""
+        mock_config.active_strategies = ["baseline"]
+        mock_config.max_order_size = 15.0
+        mock_config.signal_cooldown_hours = 4.0
+
+        original_tp = STRATEGIES["baseline"].tp_ratio
+        estimates = [_make_estimate(current_price=0.40, ai_prob=0.80, confidence=0.80)]
+
+        with (
+            patch.object(strategy_arena, "get_positions", return_value=[]),
+            patch.object(strategy_arena, "upsert_position"),
+            patch.object(strategy_arena, "insert_trade"),
+            patch.object(strategy_arena, "get_trades", return_value=[]),
+        ):
+            # First run with override
+            mock_config.strategy_overrides = {"baseline": {"tp_ratio": 0.99}}
+            run_arena(estimates, bankroll=1000.0, live_trading=False)
+            assert STRATEGIES["baseline"].tp_ratio == original_tp
+
+            # Second run without override
+            mock_config.strategy_overrides = {}
+            run_arena(estimates, bankroll=1000.0, live_trading=False)
+            assert STRATEGIES["baseline"].tp_ratio == original_tp
 
 
 # ---------------------------------------------------------------------------
@@ -178,12 +207,37 @@ class TestArenaLiveScaling:
             patch.object(strategy_arena, "insert_trade"),
             patch.object(strategy_arena, "get_trades", return_value=[]),
         ):
-            sys.modules["live_trader"] = mock_live_trader
+            sys.modules["src.live_trader"] = mock_live_trader
             try:
                 run_arena(estimates, bankroll=1000.0, live_trading=True)
             finally:
-                sys.modules.pop("live_trader", None)
+                sys.modules.pop("src.live_trader", None)
 
         # If any live order was placed, it must not exceed max_order_size
         for cost in live_costs:
             assert cost <= 10.0
+
+
+# ---------------------------------------------------------------------------
+# check_arena_exits — accepts bankroll parameter
+# ---------------------------------------------------------------------------
+
+class TestCheckArenaExits:
+
+    def test_check_arena_exits_accepts_bankroll(self, mock_config):
+        """check_arena_exits passes bankroll to StrategyRunner."""
+        mock_config.active_strategies = ["baseline"]
+        mock_config.strategy_overrides = {}
+
+        def fake_price_fetcher(market_id):
+            return 0.50
+
+        with (
+            patch.object(strategy_arena, "get_positions", return_value=[]),
+            patch.object(strategy_arena, "upsert_position"),
+            patch.object(strategy_arena, "insert_trade"),
+            patch.object(strategy_arena, "get_trades", return_value=[]),
+        ):
+            # Should not raise
+            result = check_arena_exits(fake_price_fetcher, bankroll=500.0)
+            assert result == 0

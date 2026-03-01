@@ -62,13 +62,14 @@ def place_limit_order(
     Prices at best ask/bid to guarantee immediate fills.
     Returns order result dict or None on failure.
     """
+    cfg = get_config()
     try:
         client_check = _get_client()
         book = client_check.get_order_book(token_id)
         if side == "BUY" and hasattr(book, 'asks') and book.asks:
             best_ask = float(book.asks[0].price)
             spread = best_ask - price
-            if spread > 0.10:
+            if spread > cfg.max_spread:
                 console.print(f"[yellow]  ⚠ Wide spread: mid={price:.3f} ask={best_ask:.3f} (spread={spread:.3f}) — skipping dead market[/yellow]")
                 return None
             price = best_ask
@@ -76,22 +77,21 @@ def place_limit_order(
         elif side == "SELL" and hasattr(book, 'bids') and book.bids:
             best_bid = float(book.bids[0].price)
             spread = price - best_bid
-            if spread > 0.10:
+            if spread > cfg.max_spread:
                 console.print(f"[yellow]  ⚠ Wide spread — skipping dead market[/yellow]")
                 return None
             price = best_bid
     except Exception as e:
-        console.print(f"[dim]  ⚠ Orderbook check failed (using original price + 2c bump)[/dim]")
+        console.print(f"[dim]  ⚠ Orderbook check failed (using original price + {cfg.price_bump_fallback}c bump)[/dim]")
         if side == "BUY":
-            price = min(round(price + 0.02, 4), 0.99)
+            price = min(round(price + cfg.price_bump_fallback, 4), 0.99)
         else:
-            price = max(round(price - 0.02, 4), 0.01)
+            price = max(round(price - cfg.price_bump_fallback, 4), 0.01)
 
     size = int(size)
     cost = size * price
 
     # Safety checks (all limits from config.yaml)
-    cfg = get_config()
     if cost > cfg.max_order_size:
         console.print(f"[red]  ❌ Order too large: ${cost:.2f} > ${cfg.max_order_size}[/red]")
         return None
@@ -102,7 +102,7 @@ def place_limit_order(
         return None
 
     balance = get_balance()
-    if cost > balance * 0.95:
+    if cost > balance * cfg.balance_reserve_pct:
         console.print(f"[red]  ❌ Insufficient balance: ${balance:.2f} < ${cost:.2f}[/red]")
         return None
 
@@ -127,8 +127,9 @@ def place_limit_order(
         console.print(f"[dim]  Order ID: {result.get('orderID', '?')}[/dim]")
 
         return result
-    except Exception:
-        console.print("[red]  ❌ Order failed[/red]")
+    except Exception as e:
+        console.print(f"[red]  ❌ Order failed: {e}[/red]")
+        add_notification(f"❌ 下单失败: {e}", "ORDER_FAILED")
         return None
 
 

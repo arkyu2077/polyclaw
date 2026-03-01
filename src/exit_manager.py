@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from rich.console import Console
 
 from .config import get_config
-from .db import get_positions, add_notification
+from .db import get_positions, upsert_position, add_notification
 from .order_executor import _get_client
 from .position_tracker import close_live_position, check_pending_orders
 
@@ -22,7 +22,10 @@ def check_live_exits() -> int:
     if not positions:
         return 0
 
+    cfg = get_config()
+    now = datetime.now(timezone.utc)
     closed = 0
+
     for pos in positions:
         market_id = pos["market_id"]
 
@@ -44,25 +47,58 @@ def check_live_exits() -> int:
         except Exception:
             continue
 
-        # Check take profit
+        # BUY_NO direction: effective price is 1 - token_price
+        if pos["direction"] == "BUY_NO":
+            current_price = 1 - current_price
+
+        # Track peak price
+        peak = pos.get("peak_price") or pos["entry_price"]
+        if current_price > peak:
+            pos["peak_price"] = current_price
+            peak = current_price
+            upsert_position(pos)
+
+        # 1. Check take profit
         if pos.get("target_price") and current_price >= pos["target_price"]:
             result = close_live_position(pos, "TAKE_PROFIT")
             if result:
                 closed += 1
             continue
 
-        # Check stop loss
+        # 2. Check stop loss
         if pos.get("stop_loss") and current_price <= pos["stop_loss"]:
             result = close_live_position(pos, "STOP_LOSS")
             if result:
                 closed += 1
             continue
 
-        # Check timeout
+        # 3. Trailing stop
+        if pos.get("target_price") and pos.get("entry_price"):
+            target_move = pos["target_price"] - pos["entry_price"]
+            if target_move > 0:
+                progress = (peak - pos["entry_price"]) / target_move
+                if progress >= cfg.trailing_stop_activation:
+                    trail_stop = peak * (1 - cfg.trailing_stop_distance)
+                    if current_price <= max(trail_stop, pos.get("stop_loss", 0)):
+                        result = close_live_position(pos, "TRAILING_STOP")
+                        if result:
+                            closed += 1
+                        continue
+
+        # 4. Time-tightened stop
         if pos.get("entry_time"):
-            cfg = get_config()
             entry_dt = datetime.fromisoformat(pos["entry_time"])
-            hours = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
+            hours = (now - entry_dt).total_seconds() / 3600
+
+            if 12 < hours <= 24:
+                tightened = (pos.get("stop_loss", 0) + pos["entry_price"]) / 2
+                if current_price <= tightened:
+                    result = close_live_position(pos, "TIME_TIGHTENED_STOP")
+                    if result:
+                        closed += 1
+                    continue
+
+            # 5. Timeout
             if hours > cfg.live_timeout_hours:
                 result = close_live_position(pos, "TIMEOUT")
                 if result:

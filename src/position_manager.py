@@ -215,7 +215,7 @@ def open_position(
         return None
 
     shares = int(allowed_cost / entry_price) if entry_price > 0 else 0
-    if shares < 3:
+    if shares < cfg.min_shares:
         console.print(f"[yellow]  ⚠ Position too small ({shares} shares, ${allowed_cost:.1f}), skipping[/yellow]")
         return None
     cost = round(shares * entry_price, 2)
