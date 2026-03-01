@@ -60,14 +60,14 @@ def generate_report() -> str:
     usdc_e = _wallet_balance()
     order_count, order_locked = _pending_orders()
 
-    # Open positions from DB
+    # Open positions from DB (live only)
     open_rows = db.execute(
-        "SELECT * FROM positions WHERE status='open' ORDER BY created_at DESC"
+        "SELECT * FROM positions WHERE status='open' AND mode='live' ORDER BY created_at DESC"
     ).fetchall()
 
-    # Closed positions from DB
+    # Closed positions from DB (live only)
     closed_rows = db.execute(
-        "SELECT * FROM positions WHERE status='closed' ORDER BY created_at DESC"
+        "SELECT * FROM positions WHERE status='closed' AND mode='live' ORDER BY created_at DESC"
     ).fetchall()
 
     # Build report
@@ -83,8 +83,7 @@ def generate_report() -> str:
         entry = r["entry_price"]
         cost = r["cost"]
         total_open_cost += cost
-        tag = f"[{mode}]" if mode != "live" else ""
-        lines.append(f"🟡 {q} | {direction} {shares}股 @${entry:.3f} | 成本${cost:.2f} {tag}")
+        lines.append(f"🟡 {q} | {direction} {shares}股 @${entry:.3f} | 成本${cost:.2f}")
 
     # Closed stats
     wins = losses = 0
