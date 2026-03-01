@@ -107,6 +107,12 @@ class Config:
     # Data sources — loaded from env vars
     twitter_rapidapi_keys: list[str] = field(default_factory=list)
 
+    # WorldMonitor sources
+    acled_email: str = ""
+    acled_password: str = ""
+    eia_api_key: str = ""
+    rss_feeds_per_cycle: int = 20
+
     # CLOB API — auto-derived from private_key by setup.sh, loaded from env vars
     clob_api_key: str = ""
     clob_api_secret: str = ""
@@ -250,6 +256,8 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         "max_spread", "price_bump_fallback", "balance_reserve_pct",
         # Signal dedup
         "signal_cooldown_hours", "max_alerts_per_hour",
+        # WorldMonitor
+        "rss_feeds_per_cycle",
         # LLM
         "ai_estimate_discount", "llm_provider", "llm_base_url", "llm_model",
         # Arena
@@ -270,6 +278,9 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         clob_api_passphrase=os.environ.get("POLYMARKET_CLOB_API_PASSPHRASE", ""),
         discord_webhook=os.environ.get("DISCORD_WEBHOOK_URL", ""),
         twitter_rapidapi_keys=twitter_keys,
+        acled_email=os.environ.get("ACLED_EMAIL", ""),
+        acled_password=os.environ.get("ACLED_PASSWORD", ""),
+        eia_api_key=os.environ.get("EIA_API_KEY", ""),
         rpc_url=os.environ.get("POLYGON_RPC_URL", "https://polygon-bor-rpc.publicnode.com"),
         llm_api_key=os.environ.get("LLM_API_KEY", ""),
         llm_base_url=os.environ.get("LLM_BASE_URL", ""),

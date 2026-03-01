@@ -41,6 +41,24 @@ CATEGORIES = {
         "china", "russia", "ukraine", "taiwan", "iran", "north korea",
         "missile", "nuclear", "diplomat", "ceasefire", "treaty",
     ],
+    "conflict": [
+        "war", "conflict", "military", "troops", "airstrike", "missile",
+        "ceasefire", "peacekeeping", "casualties", "fatalities", "bombing",
+        "shelling", "artillery", "insurgent", "guerrilla", "coup",
+        "armed", "combat", "frontline", "offensive", "siege",
+    ],
+    "disaster": [
+        "earthquake", "hurricane", "typhoon", "flood", "wildfire",
+        "volcano", "tsunami", "drought", "evacuation", "tornado",
+        "cyclone", "landslide", "avalanche", "famine", "relief",
+        "disaster", "catastrophe", "emergency", "rescue",
+    ],
+    "energy": [
+        "oil", "crude", "brent", "wti", "natural gas", "opec",
+        "pipeline", "refinery", "energy crisis", "barrel", "petroleum",
+        "gasoline", "diesel", "lng", "shale", "drilling", "rig",
+        "solar", "wind energy", "renewable", "nuclear energy",
+    ],
 }
 
 # ── Entities with specificity ───────────────────────────────────────────────
@@ -75,6 +93,20 @@ ENTITIES = {
     "russia":    {"keywords": ["russia", "putin", "kremlin"], "category": "geopolitics", "specific": True},
     "china":     {"keywords": ["china", "beijing", "xi jinping"], "category": "geopolitics", "specific": True},
     "war":       {"keywords": ["war", "战争", "军事", "冲突"], "category": "geopolitics", "specific": False},
+    # Conflict entities
+    "israel":    {"keywords": ["israel", "israeli", "idf"], "category": "conflict", "specific": True},
+    "hamas":     {"keywords": ["hamas", "gaza"], "category": "conflict", "specific": True},
+    "hezbollah": {"keywords": ["hezbollah", "lebanon"], "category": "conflict", "specific": True},
+    "nato":      {"keywords": ["nato", "alliance"], "category": "geopolitics", "specific": True},
+    # Energy entities
+    "opec":      {"keywords": ["opec", "opec+"], "category": "energy", "specific": True},
+    "aramco":    {"keywords": ["saudi aramco", "aramco"], "category": "energy", "specific": True},
+    "brent":     {"keywords": ["brent crude", "brent oil"], "category": "energy", "specific": True},
+    "wti":       {"keywords": ["wti crude", "west texas"], "category": "energy", "specific": True},
+    # Disaster entities
+    "gdacs":     {"keywords": ["gdacs", "disaster alert"], "category": "disaster", "specific": False},
+    "fema":      {"keywords": ["fema", "federal emergency"], "category": "disaster", "specific": True},
+    "red_cross": {"keywords": ["red cross", "icrc"], "category": "disaster", "specific": True},
 }
 
 # ── Market question type parsing ────────────────────────────────────────────
@@ -311,6 +343,15 @@ SOURCE_CREDIBILITY = {
     "Reuters": 5, "AP": 5, "Bloomberg": 5,
     "CoinDesk": 3, "The Block": 3, "BlockBeats": 3, "PANews": 3,
     "CryptoNews": 2, "CoinGecko-Trending": 2, "Fear&Greed": 2,
+    # WorldMonitor sources
+    "gdelt": 3, "acled": 4, "eia": 4, "gdacs": 4, "telegram": 2,
+    # Extended RSS sources
+    "Al Jazeera": 4, "BBC World": 5, "NPR": 4, "Guardian World": 4,
+    "France24": 4, "DW": 4, "TASS": 3, "Xinhua": 3,
+    "OilPrice": 3, "Rigzone": 3, "Platts": 4,
+    "CNBC": 4, "MarketWatch": 3, "FT": 5, "WSJ": 5, "Yahoo Finance": 3,
+    "TechCrunch": 3, "Ars Technica": 3, "Wired": 3, "The Verge": 3,
+    "Bellingcat": 4, "SIPRI": 4, "ICG": 4, "ACLED News": 4,
 }
 
 BREAKING_KEYWORDS = [

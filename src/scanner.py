@@ -171,6 +171,51 @@ def run_scan(min_edge: float = 0.03, bankroll: float = 1000.0, use_llm: bool = F
             console.print(f"  🏀 {len(odds_items)} sports odds fetched")
     except Exception as e:
         console.print(f"  [dim]Sports odds: {e}[/dim]")
+    # GDELT global news
+    try:
+        from .gdelt_source import fetch_gdelt
+        gdelt_items = fetch_gdelt()
+        if gdelt_items:
+            new_items.extend(gdelt_items)
+            console.print(f"  🌍 {len(gdelt_items)} GDELT articles")
+    except Exception as e:
+        console.print(f"  [dim]GDELT: {e}[/dim]")
+    # GDACS disaster alerts
+    try:
+        from .gdacs_source import fetch_gdacs
+        gdacs_items = fetch_gdacs()
+        if gdacs_items:
+            new_items.extend(gdacs_items)
+            console.print(f"  🌋 {len(gdacs_items)} disaster alerts")
+    except Exception as e:
+        console.print(f"  [dim]GDACS: {e}[/dim]")
+    # ACLED conflict data
+    try:
+        from .acled_source import fetch_acled
+        acled_items = fetch_acled()
+        if acled_items:
+            new_items.extend(acled_items)
+            console.print(f"  ⚔️ {len(acled_items)} conflict events")
+    except Exception as e:
+        console.print(f"  [dim]ACLED: {e}[/dim]")
+    # EIA energy data
+    try:
+        from .eia_source import fetch_eia
+        eia_items = fetch_eia()
+        if eia_items:
+            new_items.extend(eia_items)
+            console.print(f"  🛢️ {len(eia_items)} energy data points")
+    except Exception as e:
+        console.print(f"  [dim]EIA: {e}[/dim]")
+    # Telegram OSINT channels
+    try:
+        from .telegram_source import fetch_telegram
+        tg_items = fetch_telegram()
+        if tg_items:
+            new_items.extend(tg_items)
+            console.print(f"  📡 {len(tg_items)} Telegram messages")
+    except Exception as e:
+        console.print(f"  [dim]Telegram: {e}[/dim]")
     news_file = Path(__file__).parent / "news_feed.json"
     all_news = json.loads(news_file.read_text()) if news_file.exists() else []
     console.print(f"  {len(new_items)} new items, {len(all_news)} total in cache")

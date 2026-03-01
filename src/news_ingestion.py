@@ -4,9 +4,14 @@ v2 changes:
 - Removed: CoinGecko Trending (0 useful signals), on-chain data (1/night, no matches)
 - Added: Economic calendar (FOMC/CPI/GDP), Weather API (Open-Meteo)
 - Kept: Reuters, AP, Bloomberg, CoinDesk, The Block, PANews, BlockBeats, Fear&Greed, ESPN sports
+
+v3 changes:
+- Expanded RSS feeds from 6 → 40+ (geopolitics, energy, finance, tech, conflict)
+- Added feed rotation: randomly select subset each cycle to avoid timeouts
 """
 
 import json
+import random
 import re
 import hashlib
 from datetime import datetime, timezone, timedelta
@@ -36,6 +41,47 @@ FALLBACK_FEEDS = {
     "CryptoNews": "https://news.google.com/rss/search?q=cryptocurrency+OR+bitcoin+OR+ethereum&hl=en-US&gl=US&ceid=US:en",
 }
 
+# === WorldMonitor-inspired category feeds ===
+
+GEOPOLITICS_FEEDS = {
+    "Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
+    "BBC World": "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "NPR": "https://feeds.npr.org/1001/rss.xml",
+    "Guardian World": "https://www.theguardian.com/world/rss",
+    "France24": "https://www.france24.com/en/rss",
+    "DW": "https://rss.dw.com/rdf/rss-en-all",
+    "TASS": "https://tass.com/rss/v2.xml",
+    "Xinhua": "http://www.news.cn/english/rss/worldrss.xml",
+}
+
+ENERGY_FEEDS = {
+    "OilPrice": "https://oilprice.com/rss/main",
+    "Rigzone": "https://www.rigzone.com/news/rss/rigzone_latest.aspx",
+    "Platts": "https://www.spglobal.com/commodityinsights/en/rss-feed/oil",
+}
+
+FINANCE_FEEDS = {
+    "CNBC": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "MarketWatch": "https://feeds.marketwatch.com/marketwatch/topstories/",
+    "FT": "https://www.ft.com/?format=rss",
+    "WSJ": "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
+    "Yahoo Finance": "https://finance.yahoo.com/news/rssindex",
+}
+
+TECH_FEEDS = {
+    "TechCrunch": "https://techcrunch.com/feed/",
+    "Ars Technica": "https://feeds.arstechnica.com/arstechnica/index",
+    "Wired": "https://www.wired.com/feed/rss",
+    "The Verge": "https://www.theverge.com/rss/index.xml",
+}
+
+CONFLICT_FEEDS = {
+    "Bellingcat": "https://www.bellingcat.com/feed/",
+    "SIPRI": "https://www.sipri.org/rss.xml",
+    "ICG": "https://www.crisisgroup.org/rss.xml",
+    "ACLED News": "https://acleddata.com/feed/",
+}
+
 # Weather cities for Polymarket weather markets
 WEATHER_CITIES = {
     "London": {"lat": 51.5074, "lon": -0.1278},
@@ -58,12 +104,33 @@ def _strip_html(text: str) -> str:
 
 
 def fetch_rss() -> list[dict]:
-    """Fetch articles from all RSS feeds with per-feed isolation."""
+    """Fetch articles from RSS feeds with per-feed isolation and rotation.
+
+    Primary feeds (RSS_FEEDS) are always fetched. Extended feeds are randomly
+    sampled each cycle to avoid timeouts (controlled by rss_feeds_per_cycle).
+    """
     items = []
-    all_feeds = {**RSS_FEEDS, **FALLBACK_FEEDS}
+    cfg = get_config()
+    feeds_per_cycle = cfg.rss_feeds_per_cycle
+
+    # Primary + fallback are always fetched
+    primary_feeds = {**RSS_FEEDS, **FALLBACK_FEEDS}
+
+    # Extended feeds: randomly sample a subset each cycle
+    extended_feeds = {
+        **GEOPOLITICS_FEEDS, **ENERGY_FEEDS, **FINANCE_FEEDS,
+        **TECH_FEEDS, **CONFLICT_FEEDS,
+    }
+    extended_keys = list(extended_feeds.keys())
+    sample_size = min(feeds_per_cycle, len(extended_keys))
+    selected_keys = random.sample(extended_keys, sample_size)
+    sampled_extended = {k: extended_feeds[k] for k in selected_keys}
+
+    all_feeds = {**primary_feeds, **sampled_extended}
+
     for source, url in all_feeds.items():
         try:
-            with httpx.Client(timeout=6, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            with httpx.Client(timeout=5, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}) as client:
                 resp = client.get(url)
                 feed = feedparser.parse(resp.text)
                 for entry in feed.entries[:10]:
